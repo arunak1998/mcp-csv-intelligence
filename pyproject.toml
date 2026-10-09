@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mcp-csv-intelligence"
+version = "0.1.0"
+description = "Chat with CSV files and generate dashboards through an MCP server"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "langchain>=0.3.27",
+    "langchain-core>=0.3.74",
+    "langchain-openai>=0.3.30",
+    "langchain-mcp-adapters>=0.1.9",
+    "langgraph>=0.6.5,<2",
+    "mcp[cli]>=1.13.0",
+    "polars>=1.32.3",
+    "python-dotenv>=1.1.0",
+    "requests>=2.31.0",
+    "streamlit>=1.48.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.6",
+]
+
+[project.scripts]
+csv-mcp-server = "csv_intelligence.server.analyst:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 110
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+per-file-ignores = { "src/csv_intelligence/agents/prompts.py" = ["E501"] }

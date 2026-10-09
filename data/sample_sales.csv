@@ -1,0 +1,121 @@
+order_id,order_date,region,product,category,units,unit_price,revenue
+1001,2025-07-22,North,Desk,Furniture,3,250,750
+1002,2025-07-07,North,Laptop,Electronics,2,900,1800
+1003,2025-01-20,North,Notebook,Stationery,4,5,20
+1004,2025-02-05,South,Chair,Furniture,7,120,840
+1005,2025-01-31,North,Laptop,Electronics,7,900,6300
+1006,2025-10-23,West,Phone,Electronics,1,600,600
+1007,2025-01-24,South,Laptop,Electronics,4,900,3600
+1008,2025-03-15,North,Desk,Furniture,7,250,1750
+1009,2025-10-14,South,Notebook,Stationery,5,5,25
+1010,2025-07-10,North,Laptop,Electronics,4,900,3600
+1011,2025-10-16,North,Notebook,Stationery,2,5,10
+1012,2025-09-12,West,Notebook,Stationery,4,5,20
+1013,2025-10-27,West,Desk,Furniture,8,250,2000
+1014,2025-05-08,South,Desk,Furniture,5,250,1250
+1015,2025-02-11,East,Pen Set,Stationery,4,12,48
+1016,2025-06-25,West,Notebook,Stationery,8,5,40
+1017,2025-03-02,West,Desk,Furniture,2,250,500
+1018,2025-03-19,West,Phone,Electronics,6,600,3600
+1019,2025-12-09,North,Chair,Furniture,1,120,120
+1020,2025-06-24,East,Notebook,Stationery,6,5,30
+1021,2025-10-24,West,Notebook,Stationery,8,5,40
+1022,2025-05-19,West,Laptop,Electronics,2,900,1800
+1023,2025-02-01,East,Pen Set,Stationery,2,12,24
+1024,2025-05-26,West,Pen Set,Stationery,8,12,96
+1025,2025-01-12,West,Pen Set,Stationery,6,12,72
+1026,2025-11-09,North,Desk,Furniture,3,250,750
+1027,2025-04-22,East,Chair,Furniture,1,120,120
+1028,2025-07-23,West,Phone,Electronics,4,600,2400
+1029,2025-03-27,West,Chair,Furniture,2,120,240
+1030,2025-03-12,West,Chair,Furniture,5,120,600
+1031,2025-12-28,West,Notebook,Stationery,5,5,25
+1032,2025-04-29,South,Desk,Furniture,7,250,1750
+1033,2025-03-19,South,Laptop,Electronics,3,900,2700
+1034,2025-01-07,West,Pen Set,Stationery,4,12,48
+1035,2025-05-15,East,Notebook,Stationery,3,5,15
+1036,2025-08-03,East,Laptop,Electronics,3,900,2700
+1037,2025-03-06,North,Notebook,Stationery,6,5,30
+1038,2025-07-23,West,Chair,Furniture,7,120,840
+1039,2025-09-04,West,Chair,Furniture,2,120,240
+1040,2025-02-04,South,Laptop,Electronics,4,900,3600
+1041,2025-02-26,East,Chair,Furniture,3,120,360
+1042,2025-02-22,North,Notebook,Stationery,1,5,5
+1043,2025-10-02,North,Notebook,Stationery,3,5,15
+1044,2025-02-06,South,Desk,Furniture,1,250,250
+1045,2025-03-18,East,Notebook,Stationery,7,5,35
+1046,2025-08-31,North,Desk,Furniture,6,250,1500
+1047,2025-08-27,West,Laptop,Electronics,8,900,7200
+1048,2025-02-13,South,Chair,Furniture,5,120,600
+1049,2025-05-16,West,Laptop,Electronics,6,900,5400
+1050,2025-09-22,North,Pen Set,Stationery,3,12,36
+1051,2025-03-17,North,Phone,Electronics,6,600,3600
+1052,2025-11-26,North,Notebook,Stationery,5,5,25
+1053,2025-09-23,East,Pen Set,Stationery,5,12,60
+1054,2025-04-25,East,Phone,Electronics,6,600,3600
+1055,2025-11-10,South,Pen Set,Stationery,4,12,48
+1056,2025-04-27,South,Phone,Electronics,7,600,4200
+1057,2025-07-02,North,Notebook,Stationery,8,5,40
+1058,2025-08-30,East,Laptop,Electronics,5,900,4500
+1059,2025-08-17,East,Phone,Electronics,6,600,3600
+1060,2025-04-23,North,Desk,Furniture,2,250,500
+1061,2025-04-11,East,Phone,Electronics,8,600,4800
+1062,2025-11-16,North,Phone,Electronics,8,600,4800
+1063,2025-11-26,North,Chair,Furniture,6,120,720
+1064,2025-07-18,South,Pen Set,Stationery,2,12,24
+1065,2025-08-11,East,Chair,Furniture,3,120,360
+1066,2025-08-26,West,Laptop,Electronics,7,900,6300
+1067,2025-03-23,South,Pen Set,Stationery,2,12,24
+1068,2025-03-19,West,Phone,Electronics,1,600,600
+1069,2025-11-10,West,Pen Set,Stationery,3,12,36
+1070,2025-03-21,South,Pen Set,Stationery,6,12,72
+1071,2025-11-29,North,Laptop,Electronics,1,900,900
+1072,2025-08-11,South,Notebook,Stationery,3,5,15
+1073,2025-05-09,South,Phone,Electronics,1,600,600
+1074,2025-10-28,East,Desk,Furniture,4,250,1000
+1075,2025-03-09,North,Desk,Furniture,7,250,1750
+1076,2025-08-23,West,Pen Set,Stationery,6,12,72
+1077,2025-09-30,South,Notebook,Stationery,3,5,15
+1078,2025-08-14,South,Notebook,Stationery,1,5,5
+1079,2025-03-18,South,Notebook,Stationery,1,5,5
+1080,2025-11-13,North,Phone,Electronics,8,600,4800
+1081,2025-06-16,West,Notebook,Stationery,1,5,5
+1082,2025-05-08,South,Laptop,Electronics,1,900,900
+1083,2025-02-20,West,Desk,Furniture,1,250,250
+1084,2025-02-02,West,Notebook,Stationery,1,5,5
+1085,2025-12-21,East,Desk,Furniture,4,250,1000
+1086,2025-09-17,South,Chair,Furniture,8,120,960
+1087,2025-10-14,South,Pen Set,Stationery,5,12,60
+1088,2025-08-02,North,Chair,Furniture,3,120,360
+1089,2025-06-11,North,Chair,Furniture,8,120,960
+1090,2025-08-08,North,Pen Set,Stationery,4,12,48
+1091,2025-03-04,South,Phone,Electronics,5,600,3000
+1092,2025-03-15,East,Pen Set,Stationery,6,12,72
+1093,2025-04-23,North,Phone,Electronics,8,600,4800
+1094,2025-03-25,South,Chair,Furniture,8,120,960
+1095,2025-09-21,West,Phone,Electronics,7,600,4200
+1096,2025-04-11,East,Desk,Furniture,7,250,1750
+1097,2025-07-07,North,Desk,Furniture,2,250,500
+1098,2025-08-14,North,Desk,Furniture,8,250,2000
+1099,2025-09-22,East,Chair,Furniture,6,120,720
+1100,2025-02-27,South,Notebook,Stationery,2,5,10
+1101,2025-05-16,East,Laptop,Electronics,2,900,1800
+1102,2025-05-19,South,Laptop,Electronics,3,900,2700
+1103,2025-07-27,South,Chair,Furniture,5,120,600
+1104,2025-12-25,East,Notebook,Stationery,8,5,40
+1105,2025-01-30,South,Laptop,Electronics,5,900,4500
+1106,2025-05-18,North,Chair,Furniture,2,120,240
+1107,2025-05-14,North,Pen Set,Stationery,2,12,24
+1108,2025-02-04,East,Notebook,Stationery,4,5,20
+1109,2025-01-06,East,Laptop,Electronics,8,900,7200
+1110,2025-05-18,South,Notebook,Stationery,7,5,35
+1111,2025-02-26,South,Laptop,Electronics,4,900,3600
+1112,2025-04-03,South,Desk,Furniture,1,250,250
+1113,2025-09-29,South,Desk,Furniture,5,250,1250
+1114,2025-09-14,South,Desk,Furniture,8,250,2000
+1115,2025-01-10,East,Desk,Furniture,6,250,1500
+1116,2025-01-10,South,Laptop,Electronics,1,900,900
+1117,2025-05-06,West,Notebook,Stationery,8,5,40
+1118,2025-12-03,West,Laptop,Electronics,7,900,6300
+1119,2025-09-17,East,Notebook,Stationery,7,5,35
+1120,2025-04-28,East,Pen Set,Stationery,4,12,48
