@@ -65,9 +65,30 @@ function renderAudit(details, calls) {
   details.innerHTML = `<summary>What the AI saw (${calls.length} call${calls.length > 1 ? "s" : ""}, exact text)</summary>${items}`;
 }
 
+const STEP_LABELS = {
+  load_dataset: "load dataset", write_sql: "AI writes SQL", fix_sql: "AI fixes SQL", run_sql: "run query",
+  check_sql: "check", match_filters: "match filters", query: "query", insights: "AI insights",
+  local_summary: "local summary", privacy_check: "privacy check", plan: "AI plans", queries: "queries (parallel)", build_spec: "build charts",
+  render: "render", read_csv: "read CSV", pii_scan: "PII scan", privacy: "mask/rename",
+  write_parquet: "write Parquet", profile: "profile",
+};
+const formatMs = (ms) => (ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`);
+const stepLabel = (step) => STEP_LABELS[step] || step.replace(/_/g, " ");
+
+/** "Total 2.4 s · AI writes SQL 1.2 s · run query 120 ms (check 2 ms, match filters 5 ms, query 80 ms) · …" */
 function formatTimings(timings) {
-  const parts = Object.entries(timings || {}).map(([step, ms]) => `${step} ${(ms / 1000).toFixed(1)}s`);
-  return parts.length ? `Time: ${parts.join(" · ")}` : "";
+  const entries = Object.entries(timings || {});
+  if (!entries.length) return "";
+  const server = entries.filter(([step]) => step.startsWith("server_"));
+  const parts = entries
+    .filter(([step]) => step !== "total" && !step.startsWith("server_"))
+    .map(([step, ms]) => {
+      const inner = step === "run_sql" && server.length
+        ? ` (${server.map(([s, v]) => `${stepLabel(s.slice(7))} ${formatMs(v)}`).join(", ")})`
+        : "";
+      return `${stepLabel(step)} ${formatMs(ms)}${inner}`;
+    });
+  return [`Total ${formatMs(timings.total ?? 0)}`, ...parts].join(" · ");
 }
 
 async function api(path, options = {}) {
@@ -142,6 +163,8 @@ function showDataset(profile) {
   showSection("loaded");
   $("dataset-name").textContent = profile.source_file || profile.dataset;
   $("dataset-rows").textContent = `${numberFormat.format(profile.row_count)} rows · ${profile.columns.length} columns`;
+  $("dataset-timings").textContent = profile.timings_ms ? `Converted: ${formatTimings(profile.timings_ms)}` : "";
+  $("dataset-timings").hidden = !profile.timings_ms;
   $("dataset-columns").innerHTML = profile.columns.map((column) => {
     const badge = column.masked ? '<span class="badge masked">masked</span>' : column.pii ? `<span class="badge">${escapeHtml(column.pii)}</span>` : "";
     return `<li><span>${escapeHtml(column.name)}${badge}</span><span class="dtype">${escapeHtml(column.dtype)}</span></li>`;
@@ -167,6 +190,7 @@ function showReview(review) {
   $("ingest-error").hidden = true;
   $("review-name").textContent = review.filename;
   $("review-rows").textContent = `${numberFormat.format(review.row_count)} rows · ${review.columns.length} columns`;
+  $("review-timings").textContent = `Read and scanned: ${formatTimings(review.timings_ms)}`;
   const findings = Object.fromEntries(review.pii.map((finding) => [finding.column, finding]));
   const summary = $("pii-summary");
   summary.classList.toggle("warn", review.pii.length > 0);
@@ -399,6 +423,9 @@ $("dashboard-form").addEventListener("submit", async (event) => {
     state.dashboardHtml = body.html;
     $("dashboard-frame").srcdoc = body.html;
     $("dashboard-timings").textContent = formatTimings(body.timings_ms);
+    $("dashboard-metric-timings").innerHTML = `<summary>Query time per metric (run in parallel)</summary><ul>${
+      body.metric_timings.map((m) => `<li>${escapeHtml(m.title)}: ${formatMs(m.ms)}${m.ok ? "" : " (failed)"}</li>`).join("")
+    }</ul>`;
     renderAudit($("dashboard-audit"), body.audit);
     $("dashboard-result").hidden = false;
   } catch (error) {
