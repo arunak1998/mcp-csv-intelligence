@@ -25,7 +25,17 @@ async def test_two_calls_sql_then_insights_from_the_aggregate(mcp, fake_llm):
     assert answer["privacy"]["results_sent"] is True
     assert answer["insight"].strip() == "South leads with 22,728."
     assert [call["step"] for call in answer["done"]["audit"]] == ["write_sql", "write_insights"]
-    assert set(answer["done"]["timings_ms"]) == {"sql", "insights"}
+    assert list(answer["done"]["timings_ms"]) == [
+        "load_dataset",
+        "write_sql",
+        "run_sql",
+        "server_check_sql",
+        "server_match_filters",
+        "server_query",
+        "privacy_check",
+        "insights",
+        "total",
+    ]
 
 
 async def test_the_first_prompt_has_the_schema_but_no_rows_or_values(mcp, fake_llm):
@@ -111,3 +121,17 @@ async def test_events_put_the_table_before_the_insights(mcp, fake_llm):
 )
 def test_redact_error(raw, expected):
     assert redact_error(raw) == expected
+
+
+async def test_local_answers_and_fixes_are_timed_separately(mcp, fake_llm):
+    llm = fake_llm('{"sql": "SELECT regionx FROM self"}', json.dumps(ROWS))
+
+    timings = (await ask(mcp, llm))["done"]["timings_ms"]
+
+    assert {"write_sql", "fix_sql", "local_summary"} <= set(timings) and "insights" not in timings
+    assert timings["total"] >= timings["write_sql"] + timings["run_sql"]
+
+
+async def test_errors_still_report_timings(mcp, fake_llm):
+    answer = await ask(mcp, fake_llm("no sql here"))
+    assert set(answer["error"]["timings_ms"]) == {"load_dataset", "write_sql", "total"}
