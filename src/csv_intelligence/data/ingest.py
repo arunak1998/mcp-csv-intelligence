@@ -1,5 +1,7 @@
 """Turn an uploaded CSV or Excel file into the dataset the MCP server queries: Parquet + a cached profile."""
 
+import importlib
+import importlib.util
 from pathlib import Path
 from typing import Any
 
@@ -49,6 +51,16 @@ def read_csv(path: Path) -> pl.DataFrame:
 
 def excel_sheet_names(path: Path) -> list[str]:
     return fastexcel.read_excel(path).sheet_names
+
+
+def warm_up_excel_reader() -> None:
+    """Import pyarrow ahead of the first Excel upload, if it is installed.
+
+    When pyarrow is present Polars uses it to read Excel, and importing it can take seconds; without it
+    (a clean install) Polars reads Excel directly and there is nothing to warm up.
+    """
+    if importlib.util.find_spec("pyarrow") is not None:
+        importlib.import_module("pyarrow")
 
 
 def read_excel(path: Path) -> pl.DataFrame:

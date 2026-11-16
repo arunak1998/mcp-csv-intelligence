@@ -102,3 +102,19 @@ def test_ingest_file_converts_excel_to_parquet(upload_dir, tmp_path):
     assert profile["dataset"] == "Q1_Sales" and profile["row_count"] == 2
     assert pl.read_parquet(upload_dir / "Q1_Sales.parquet")["revenue"].sum() == 30
     assert not path.exists()
+
+
+def test_warm_up_excel_reader_imports_pyarrow_only_when_installed(monkeypatch):
+    import importlib
+
+    from csv_intelligence.data import ingest
+
+    imported = []
+    monkeypatch.setattr(importlib, "import_module", imported.append)
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: None)
+    ingest.warm_up_excel_reader()
+    assert imported == []
+
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: object())
+    ingest.warm_up_excel_reader()
+    assert imported == ["pyarrow"]
