@@ -69,7 +69,7 @@ const STEP_LABELS = {
   load_dataset: "load dataset", write_sql: "AI writes SQL", fix_sql: "AI fixes SQL", run_sql: "run query",
   check_sql: "check", match_filters: "match filters", query: "query", insights: "AI insights",
   local_summary: "local summary", privacy_check: "privacy check", plan: "AI plans", queries: "queries (parallel)", build_spec: "build charts",
-  render: "render", read_csv: "read CSV", pii_scan: "PII scan", privacy: "mask/rename",
+  render: "render", read_file: "read file", pii_scan: "PII scan", privacy: "mask/rename",
   write_parquet: "write Parquet", profile: "profile",
 };
 const formatMs = (ms) => (ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`);
@@ -149,7 +149,7 @@ function showSection(name) {
 
 function setInputsEnabled(enabled) {
   for (const id of ["chat-input", "chat-send", "dashboard-input", "dashboard-send"]) $(id).disabled = !enabled;
-  $("chat-input").placeholder = enabled ? "Ask a question about your data" : "Upload a CSV to start";
+  $("chat-input").placeholder = enabled ? "Ask a question about your data" : "Upload a CSV or Excel file to start";
 }
 
 function showDataset(profile) {
@@ -191,6 +191,11 @@ function showReview(review) {
   $("review-name").textContent = review.filename;
   $("review-rows").textContent = `${numberFormat.format(review.row_count)} rows · ${review.columns.length} columns`;
   $("review-timings").textContent = `Read and scanned: ${formatTimings(review.timings_ms)}`;
+  const sheets = review.sheets || [];
+  $("review-sheet").textContent = sheets.length > 1
+    ? `Using the first sheet, "${sheets[0]}" (${sheets.length} sheets in this workbook).`
+    : sheets.length === 1 ? `Sheet: "${sheets[0]}".` : "";
+  $("review-sheet").hidden = !sheets.length;
   const findings = Object.fromEntries(review.pii.map((finding) => [finding.column, finding]));
   const summary = $("pii-summary");
   summary.classList.toggle("warn", review.pii.length > 0);
