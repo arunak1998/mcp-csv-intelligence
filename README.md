@@ -27,6 +27,13 @@ flowchart LR
 The pipelines never read the file directly. They find it and query it only through the MCP tools, and every
 answer includes **What the AI saw**: the exact messages sent to the LLM.
 
+| Chat | Dashboard |
+|---|---|
+| ![Chat answer: local filter match, result table, insights, privacy note and SQL](docs/images/chat.png) | ![Dashboard with KPI tiles, revenue by region and monthly trend](docs/images/dashboard.png) |
+
+<sub>Screenshots use the sample data and the real server. The model's replies (SQL, dashboard plan, insight text) were
+scripted for the capture, so the numbers in the text match the table by construction.</sub>
+
 ---
 
 ## Setup (about 5 minutes)
