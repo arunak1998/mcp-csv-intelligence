@@ -1,6 +1,6 @@
 # MCP CSV Intelligence
 
-Chat with a CSV file in plain English and turn it into an interactive dashboard.
+Chat with a CSV or Excel file in plain English and turn it into an interactive dashboard.
 
 The data work runs behind an [MCP](https://modelcontextprotocol.io) server (Polars SQL). Two small pipelines talk to
 that server over one persistent MCP session.
@@ -12,8 +12,9 @@ that server over one persistent MCP session.
 - **Dashboard**: one LLM call plans 4–6 metrics (SQL + chart type) from the schema. All metric queries run in
   parallel, and a Jinja2 template renders the result as a self-contained page (Chart.js inlined, no CDN). Query
   results never go back to the LLM.
-- **MCP server**: exposes `list_datasets`, `get_schema` and `run_sql` over HTTP. Each uploaded CSV is converted once
-  to Parquet, and its schema and summary statistics are cached next to it, so queries never re-parse the CSV.
+- **MCP server**: exposes `list_datasets`, `get_schema` and `run_sql` over HTTP. Each uploaded CSV or Excel file
+  (`.xlsx`, `.xlsm`, `.xls`; first sheet) is converted once to Parquet, and its schema and summary statistics are
+  cached next to it, so queries never re-parse the original file.
 
 ```mermaid
 flowchart LR
@@ -116,7 +117,7 @@ Run both commands from the repository root, so they share the `data/uploads` fol
 
 ## Try it
 
-1. In the **Data** panel, drop [`data/sample_sales.csv`](data/sample_sales.csv) (or any CSV). Review the columns:
+1. In the **Data** panel, drop [`data/sample_sales.csv`](data/sample_sales.csv) (or any CSV or Excel file; for a workbook, the first sheet is used). Review the columns:
    anything that looks like personal data is pre-set to be masked. You can also rename columns. Then
    **Convert & load**.
 2. **Chat** tab, ask:
@@ -143,7 +144,7 @@ A chat answer makes at most two LLM calls (three if the first SQL needs fixing).
 ```
 src/csv_intelligence/
 ├── data/
-│   ├── ingest.py           # CSV -> Parquet conversion (typed columns, clean headers)
+│   ├── ingest.py           # CSV / Excel -> Parquet conversion (typed columns, clean headers)
 │   ├── profile.py          # cached schema + summary statistics
 │   ├── datasets.py         # dataset names, file locations, upload-folder sandbox
 │   └── pii.py              # personal-data scan, masking and renaming
