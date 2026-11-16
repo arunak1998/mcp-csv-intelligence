@@ -33,6 +33,9 @@ class InProcessMcp:
     def __init__(self):
         self.calls: list[tuple[str, dict]] = []
 
+    async def wait_until_connected(self, timeout: float) -> bool:
+        return True
+
     async def call(self, tool: str, arguments: dict | None = None) -> dict:
         from csv_intelligence.agents.mcp_client import ToolCallError
         from csv_intelligence.server import analyst

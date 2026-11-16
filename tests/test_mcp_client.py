@@ -1,6 +1,9 @@
 """The persistent MCP client against the real server, served over HTTP in a background thread."""
 
+import os
 import socket
+import subprocess
+import sys
 import threading
 import time
 
@@ -104,3 +107,79 @@ def test_root_cause_unwraps_exception_groups():
     inner = ConnectionError("refused")
     assert root_cause(ExceptionGroup("outer", [ExceptionGroup("inner", [inner])])) is inner
     assert root_cause(inner) is inner
+
+
+def start_server_process(port: int, upload_dir) -> subprocess.Popen:
+    """The real csv-mcp-server in its own process, so the test can kill and restart it."""
+    env = {**os.environ, "MCP_PORT": str(port), "UPLOAD_DIR": str(upload_dir)}
+    process = subprocess.Popen(
+        [sys.executable, "-m", "csv_intelligence.server.analyst"],
+        env=env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    deadline = time.monotonic() + 60
+    while time.monotonic() < deadline:
+        with socket.socket() as probe:
+            if probe.connect_ex(("127.0.0.1", port)) == 0:
+                return process
+        time.sleep(0.2)
+    process.kill()
+    raise RuntimeError("MCP server did not start")
+
+
+async def test_calls_fail_fast_when_the_server_dies_and_recover_after_restart(
+    sales_dataset, upload_dir, monkeypatch
+):
+    import asyncio
+
+    from csv_intelligence.agents import mcp_client
+
+    monkeypatch.setattr(mcp_client, "RETRY_DELAY_SECONDS", 0.2)
+    port = free_port()
+    server = await asyncio.to_thread(start_server_process, port, upload_dir)
+    client = McpClient(f"http://127.0.0.1:{port}/mcp")
+    await client.start()
+    try:
+        assert (await client.call("list_datasets"))["datasets"] == ["sample_sales"]
+
+        server.kill()
+        server.wait()
+        started = time.monotonic()
+        with pytest.raises(McpUnavailableError):
+            await client.call("list_datasets")
+        assert time.monotonic() - started < 10  # fails fast instead of waiting for a reply that never comes
+
+        server = await asyncio.to_thread(start_server_process, port, upload_dir)
+        deadline = time.monotonic() + 30
+        while True:
+            try:
+                assert (await client.call("list_datasets"))["datasets"] == ["sample_sales"]
+                break
+            except McpUnavailableError:
+                if time.monotonic() > deadline:
+                    raise
+                await asyncio.sleep(0.2)
+    finally:
+        await client.stop()
+        server.kill()
+        server.wait()
+
+
+async def test_a_call_that_never_gets_a_reply_times_out(monkeypatch):
+    import asyncio
+
+    from csv_intelligence.agents import mcp_client
+
+    class SilentSession:
+        async def call_tool(self, name, arguments):
+            await asyncio.sleep(3600)
+
+    monkeypatch.setattr(mcp_client, "CALL_TIMEOUT_SECONDS", 0.1)
+    client = McpClient("http://unused")
+    client._session = SilentSession()
+    client._ready.set()
+
+    with pytest.raises(McpUnavailableError, match="no reply within 0.1s"):
+        await client.call("list_datasets")
+    assert client._disconnect.is_set()  # the background task will reconnect

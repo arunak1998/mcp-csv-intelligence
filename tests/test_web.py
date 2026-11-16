@@ -144,3 +144,20 @@ def test_page_and_assets_are_served_locally(upload_dir):
         for asset in ("/static/app.js", "/static/app.css"):
             assert asset in page.text and client.get(asset).status_code == 200
     assert "https://" not in page.text  # no CDN: the UI works offline
+
+
+def test_status_answers_fast_when_the_mcp_server_is_down(upload_dir, monkeypatch):
+    import socket
+    import time
+
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        dead_port = probe.getsockname()[1]
+    monkeypatch.setenv("MCP_SERVER_URL", f"http://127.0.0.1:{dead_port}/mcp")
+
+    with TestClient(create_app(llm_factory=FakeLLM)) as client:  # the real McpClient, nothing listening
+        started = time.monotonic()
+        status = client.get("/api/status").json()
+        elapsed = time.monotonic() - started
+    assert status["mcp_connected"] is False and status["dataset"] is None
+    assert elapsed < 3

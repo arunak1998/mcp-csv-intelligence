@@ -29,6 +29,8 @@ from csv_intelligence.web.uploads import UnknownUploadError, ingest_staged, stag
 
 STATIC_DIR = Path(__file__).parent / "static"
 logger = logging.getLogger("csv_intelligence.web")
+# How long /api/status waits for the MCP session before reporting it as not connected.
+STATUS_CONNECT_WAIT_SECONDS = 1.0
 
 
 class ColumnChoice(BaseModel):
@@ -69,14 +71,17 @@ async def index() -> FileResponse:
 
 @router.get("/api/status")
 async def status(request: Request) -> dict[str, Any]:
+    """Answers within about a second even when the MCP server is down, so the page never stalls."""
     mcp = request.app.state.mcp
     settings = load_settings()
-    try:
-        dataset = await active_dataset(mcp)
-    except McpUnavailableError:
-        dataset = None
+    connected, dataset = await mcp.wait_until_connected(STATUS_CONNECT_WAIT_SECONDS), None
+    if connected:
+        try:
+            dataset = await active_dataset(mcp)
+        except McpUnavailableError:
+            connected = False
     return {
-        "mcp_connected": getattr(mcp, "connected", True),
+        "mcp_connected": connected,
         "privacy_mode": settings.privacy_mode,
         "privacy_mode_locked": settings.privacy_mode == "strict",
         "dataset": dataset[1] if dataset else None,

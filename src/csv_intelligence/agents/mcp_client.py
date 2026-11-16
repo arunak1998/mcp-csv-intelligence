@@ -16,6 +16,9 @@ logger = logging.getLogger(__name__)
 CONNECT_TIMEOUT_SECONDS = 5
 RETRY_DELAY_SECONDS = 1
 REQUEST_TIMEOUT_SECONDS = 120
+# Longest a tool call may take. Queries are stopped server-side after QUERY_TIMEOUT_SECONDS (10 s by
+# default), so this only ends calls whose reply can never arrive.
+CALL_TIMEOUT_SECONDS = 60
 TOOL_ERROR_PREFIX = re.compile(r"^Error executing tool \w+: ")
 
 
@@ -48,8 +51,9 @@ class McpClient:
     """Holds a single MCP session in a background task.
 
     The session is entered and exited in that one task (anyio requires this), while any
-    request may call tools on it concurrently. If a call fails because the connection
-    dropped, the task reconnects and the next call uses the new session.
+    request may call tools on it concurrently. If the connection drops, calls waiting on it fail at
+    once with McpUnavailableError (they would otherwise wait forever: the session is torn down in
+    the background task, which can't wake a call made from another task), and the task reconnects.
     """
 
     def __init__(self, url: str):
@@ -57,6 +61,7 @@ class McpClient:
         self._session: ClientSession | None = None
         self._ready = asyncio.Event()
         self._disconnect = asyncio.Event()
+        self._closed = asyncio.Event()  # set when the current session ends; a new one per session
         self._stopping = False
         self._task: asyncio.Task | None = None
         self._reported_failure = False
@@ -64,6 +69,14 @@ class McpClient:
     @property
     def connected(self) -> bool:
         return self._ready.is_set()
+
+    async def wait_until_connected(self, timeout: float) -> bool:
+        """True once a session is ready, or False after timeout (without raising)."""
+        try:
+            await asyncio.wait_for(self._ready.wait(), timeout=timeout)
+        except TimeoutError:
+            return False
+        return True
 
     async def start(self) -> None:
         self._task = asyncio.create_task(self._run())
@@ -76,6 +89,7 @@ class McpClient:
 
     async def _run(self) -> None:
         while not self._stopping:
+            closed = asyncio.Event()
             try:
                 async with streamablehttp_client(self.url, timeout=REQUEST_TIMEOUT_SECONDS) as (
                     read,
@@ -84,7 +98,7 @@ class McpClient:
                 ):
                     async with ClientSession(read, write) as session:
                         await session.initialize()
-                        self._session = session
+                        self._session, self._closed = session, closed
                         self._ready.set()
                         self._reported_failure = False
                         logger.info("Connected to the MCP server at %s", self.url)
@@ -92,6 +106,7 @@ class McpClient:
             except Exception as error:  # the server is down or went away; try again shortly
                 self._report_failure(error)
             finally:
+                closed.set()
                 self._session = None
                 self._ready.clear()
                 self._disconnect.clear()
@@ -121,13 +136,28 @@ class McpClient:
         return self._session
 
     async def call(self, tool: str, arguments: dict[str, Any] | None = None) -> dict[str, Any]:
-        session = await self._wait_for_session()
+        """Call a tool; fails fast if the session ends, and after CALL_TIMEOUT_SECONDS at most."""
+        session, closed = await self._wait_for_session(), self._closed
+        call = asyncio.ensure_future(session.call_tool(tool, arguments or {}))
+        lost = asyncio.ensure_future(closed.wait())
         try:
-            result = await session.call_tool(tool, arguments or {})
-        except Exception as error:
-            self._disconnect.set()  # reconnect for the next call
-            raise McpUnavailableError(f"Lost the connection to the MCP server: {error}") from error
-        return tool_result(result)
+            done, _ = await asyncio.wait(
+                {call, lost}, timeout=CALL_TIMEOUT_SECONDS, return_when=asyncio.FIRST_COMPLETED
+            )
+        finally:
+            lost.cancel()
+            if not call.done():
+                call.cancel()
+        if call in done and not call.cancelled():
+            if call.exception() is None:
+                return tool_result(call.result())
+            reason = str(call.exception())
+        elif closed.is_set():
+            reason = "the server stopped"
+        else:
+            reason = f"no reply within {CALL_TIMEOUT_SECONDS}s"
+        self._disconnect.set()  # reconnect for the next call
+        raise McpUnavailableError(f"Lost the connection to the MCP server ({reason}).")
 
 
 @asynccontextmanager
