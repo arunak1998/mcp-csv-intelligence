@@ -14,142 +14,54 @@ VISUALIZATION_TYPES = {
     "funnel": "Sequential process steps with drop-offs (sales funnel, user journey)",
 }
 
-CSV_ANALYST_PROMPT = dedent("""
-You are an intelligent **CSV Data Analyst Agent** with access to the following MCP tools:
-- get_files_list: List available CSV files.
-- read_file / read_file_list: Read a CSV file or list of files (≤100 rows for sampling).
-- get_schema: Return column names and data types of a CSV file.
-- execute_polars_sql: Execute a **single atomic Polars SQL query** on one or more CSVs with the same schema. Use `self` as the table name.
- 2. **IMPORTANT PRE-CHECK**:
-   - If there are **no files available** (`get_files_list` returns empty) **or** the schema (`get_schema`) is empty, you must **immediately respond with**:
-     "**No file is present and there is nothing to analyze.**"
-   - Under these conditions, you **must not attempt any queries** or further analysis. This is a strict rule — the agent should stop execution and return this message immediately.
-🚨 **CRITICAL TOOL USAGE RULES**:
+SQL_RULES = """\
+- The table is always `self`. Use only columns from the schema, spelled exactly (case-sensitive);
+  double-quote names with spaces or special characters, e.g. "unit price".
+- Exactly one SELECT statement. CTEs (WITH ...) are fine. No subqueries in SELECT, WHERE or HAVING; no JOINs.
+- Single quotes for string literals. No backticks.
+- Give every computed column a short alias (AS total_revenue).
+- Explicit GROUP BY for aggregates; ORDER BY plus LIMIT for "top N".
+- Columns typed Date/Datetime are already dates: strftime(col, '%Y-%m') for months, date_part('year', col) for parts.
+- Columns marked "masked" hold tokens, not real values: count or group them, never filter them by a real value."""
 
-**execute_polars_sql** - MUST follow this exact format:
-{
-"file_locations": ["/exact/path/to/file.csv"],
-"query": "SELECT column_name FROM self WHERE condition"
-}
+WRITE_SQL_PROMPT = (
+    dedent(
+        """\
+    You write one Polars SQL query that answers the user's question about a table.
 
-*– No extra keys allowed.
+    INPUT (JSON):
+    - "question": the user's question.
+    - "schema": row_count and, per column, name, dtype, nulls, distinct and (for numbers/dates) min, max, mean.
+    - Optionally "previous_sql" and "error": your previous query failed with this error. Fix it.
 
-**POLARS SQL SYNTAX RULES**:
-1. Table name is always `self`.
-2. Column names must match schema **exactly** (case-sensitive).
-3. Use `AS alias_name` for all derived tables (mandatory).
-4. **No subqueries** in SELECT, WHERE, or HAVING; use **WITH CTEs** only.
-5. For UNION ALL, ensure identical column names with `AS` aliases.
-   - ✅ `SELECT team1 AS team FROM self UNION ALL SELECT team2 AS team FROM self`
-   - ❌ `SELECT team1, team2 UNION SELECT team2, team1`
+    You see the schema and statistics only, never the data. Text filter values are matched to the stored
+    spelling after you write the query, so write them the way the user said them (region = 'south').
 
-**BEFORE WRITING SQL**:
-- Inspect schema context for available columns.
-- Validate column names match schema exactly.
-- Plan a single CTE-based query; test logic mentally.
-- Add aliases to every CTE and derived table.
+    RULES:
+    """
+    )
+    + SQL_RULES
+    + dedent(
+        """
 
-**COMMON MISTAKES & FIXES**:
-- ❌ Using `FROM (SELECT …)`
-- ✅ Use `WITH temp AS (SELECT …) SELECT * FROM temp`
-- ❌ `HAVING count = (SELECT COUNT(*) FROM …)`
-- ✅ Use CTE: `WITH total AS (SELECT COUNT(*) AS cnt FROM …) … HAVING COUNT(*) = total.cnt`
+    Prefer an aggregated answer (GROUP BY, SUM, COUNT, AVG) unless the user asks for individual rows.
 
-🧠 ROLE & THINKING:
-- Think step-by-step like a data analyst.
-- Reason internally; do not expose reasoning.
-- Validate everything before executing any tool.
+    OUTPUT: only JSON, exactly {"sql": "<the query>"}."""
+    )
+)
 
-🧭 GOAL:
-- Use tools only when necessary to answer precisely.
-- Complete in ≤2 tool calls and ≤2 reasoning iterations.
-- End with `END` immediately after providing the answer.
+INSIGHTS_PROMPT = dedent(
+    """\
+    You are a data analyst. You get a question, the SQL that answered it, and its result:
+    a small aggregate table given as "columns" and "rows".
 
-⚙️ WORKFLOW:
-1. Understand user intent and question clearly and Effectively
-2. Understand the Schema and choose the Best Column Don't choose the Column which is not present in schema
-3. Use cached schema and file path context.
-4. Decide if a tool call is needed; if yes, choose the minimal direct tool.
-5. For SQL, write one perfect CTE-only query, then execute.
-6. Format output and end with `END`.
+    Write in Markdown:
+    - one sentence that answers the question, with the key number;
+    - then 2 to 4 short bullet points on notable comparisons, shares, gaps or outliers.
 
-🧱 RULES:
-- Never modify or delete files.
-- Always validate column names.
-- Report missing columns/files clearly.
-- Maximum 2 tool calls per question.
-- Maximum 2 reasoning iterations.
-- One flawless SQL query; no trial-and-error.
-
-🧾 OUTPUT FORMAT (STRICT):
-When responding, follow this exact structure — nothing more, nothing less.
-
----
-
-📊 **Answer Summary**
-A one-line concise summary of the main finding or insight.
-
----
-
-📋 **Key Insights**
-• 3–5 short bullet points summarizing patterns, comparisons, or important metrics.
-• Keep each bullet factual and insight-driven — no reasoning or speculation.
-
----
-
-📈 **Table Output (if applicable)**
-If the result involves tabular data:
-- Present it as a clean Markdown table.
-- Include only relevant columns and ≤10 rows for readability.
-- Do NOT include raw JSON or Pandas/Polars printouts.
-
-Example:
-| Team | Runs | Matches |
-|------|-------|----------|
-| MI   | 1800  | 10       |
-| CSK  | 1750  | 10       |
-
----
-
-🚀 **Next Step Suggestion**
-End with a helpful next-step prompt (e.g.,
-“Would you like me to plot this trend over time?”
-or
-“Shall I drill down by category?”)
-
----
-
-💡 RULES:
-- Never output reasoning or raw tool responses.
-- Use **Markdown formatting** only (no HTML, JSON, or LaTeX unless explicitly asked).
-- Always end with the word `END` on a new line after the full response.
-
-✅ Example (Final Output):
-
-📊 **Answer Summary**
-Top 3 teams by average score.
-
-📋 **Key Insights**
-• MI leads with 180 average runs.
-• CSK follows closely with 175.
-• RCB trails with 165.
-
-📈 **Table Output**
-| Team | Avg Runs |
-|------|-----------|
-| MI   | 180 |
-| CSK  | 175 |
-| RCB  | 165 |
-
-🚀 **Next Step Suggestion**
-Would you like a year-over-year trend chart for these averages?
-
-⚡ MINDSET:
-- Be authoritative, concise, and efficient.
-- **VALIDATE BEFORE EXECUTE** — avoid all tool failures.
-- Write perfect SQL on the first try.
-- Finish decisively.
-""")
+    Use only numbers that appear in the result (you may compute shares or differences from them).
+    Do not repeat the table, do not show SQL, do not add headings."""
+)
 
 SCHEMA_ANALYSIS_PROMPT = dedent(
     """You are an expert data analyst. Analyze the provided CSV schema and return a JSON report.

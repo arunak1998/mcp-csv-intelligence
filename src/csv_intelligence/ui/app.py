@@ -5,9 +5,12 @@ import datetime
 
 import streamlit as st
 
+from csv_intelligence.agents.chat import answer_question, collect_answer
 from csv_intelligence.agents.connection import local_connection
-from csv_intelligence.agents.csv_agent import run_csv_agent
 from csv_intelligence.agents.dashboard_agent import run_dashboard_agent
+from csv_intelligence.agents.llm import create_llm
+from csv_intelligence.agents.mcp_client import connected_client
+from csv_intelligence.settings import load_settings
 from csv_intelligence.ui.health import mcp_server_is_up
 from csv_intelligence.ui.uploads import clear_uploads, save_upload
 
@@ -65,10 +68,40 @@ def render_sidebar() -> None:
             st.rerun()
 
 
+async def ask(question: str) -> dict:
+    settings = load_settings()
+    async with connected_client(settings.mcp_url) as mcp:
+        events = answer_question(
+            question, mcp, create_llm(), settings.privacy_mode, settings.insight_max_rows
+        )
+        return await collect_answer(events)
+
+
+def render_answer(answer: dict) -> None:
+    if "error" in answer:
+        st.error(answer["error"]["message"])
+    else:
+        st.markdown(answer["insight"] or answer["summary"]["text"])
+        table = answer["table"]
+        st.dataframe([dict(zip(table["columns"], row, strict=True)) for row in table["rows"]])
+        st.caption(answer["privacy"]["reason"])
+        with st.expander("SQL"):
+            st.code(answer["sql"]["sql"], language="sql")
+            for match in answer["sql"]["filter_matches"]:
+                st.caption(
+                    f"{match['column']}: '{match['requested']}' -> {match['matched']!r} (matched locally)"
+                )
+    with st.expander("What the AI saw"):
+        st.json((answer.get("done") or answer.get("error") or {}).get("audit", []))
+
+
 def render_chat() -> None:
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
-            st.markdown(message["content"])
+            if message["role"] == "user":
+                st.markdown(message["content"])
+            else:
+                render_answer(message["content"])
 
     question = st.chat_input("Ask a question about your data")
     if not question:
@@ -80,12 +113,12 @@ def render_chat() -> None:
     with st.chat_message("assistant"):
         with st.spinner("Analysing..."):
             try:
-                answer = asyncio.run(run_csv_agent(question, local_connection()))
+                answer = asyncio.run(ask(question))
                 log("Chat question answered")
             except Exception as error:
-                answer = f"❌ {error}"
+                answer = {"error": {"message": f"❌ {error}", "audit": []}}
                 log(f"Chat failed: {error}")
-        st.markdown(answer)
+        render_answer(answer)
     st.session_state.messages.append({"role": "assistant", "content": answer})
     st.session_state.messages = st.session_state.messages[-MAX_HISTORY:]
 
