@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -15,6 +16,7 @@ logger = logging.getLogger(__name__)
 CONNECT_TIMEOUT_SECONDS = 5
 RETRY_DELAY_SECONDS = 1
 REQUEST_TIMEOUT_SECONDS = 120
+TOOL_ERROR_PREFIX = re.compile(r"^Error executing tool \w+: ")
 
 
 class McpUnavailableError(ConnectionError):
@@ -29,7 +31,7 @@ def tool_result(result: Any) -> dict[str, Any]:
     """The tool's dict result. Every tool on our server returns a dict."""
     text = "\n".join(block.text for block in result.content if getattr(block, "text", None))
     if result.isError:
-        raise ToolCallError(text.removeprefix("Error executing tool ").strip())
+        raise ToolCallError(TOOL_ERROR_PREFIX.sub("", text).strip())
     if result.structuredContent is not None:
         return result.structuredContent
     return json.loads(text)

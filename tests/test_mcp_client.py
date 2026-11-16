@@ -62,7 +62,7 @@ async def test_calls_can_run_concurrently_on_one_session(server_url, sales_datas
 
 async def test_tool_errors_are_raised_with_the_server_message(server_url, sales_dataset):
     async with connected_client(server_url) as client:
-        with pytest.raises(ToolCallError, match="Only SELECT"):
+        with pytest.raises(ToolCallError, match="^Only SELECT queries are allowed"):
             await client.call("run_sql", {"dataset": sales_dataset, "query": "DROP TABLE self"})
         # the session survives a tool error
         assert (await client.call("list_datasets"))["datasets"] == ["sample_sales"]
