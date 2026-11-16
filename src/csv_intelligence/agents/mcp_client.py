@@ -53,6 +53,10 @@ class McpClient:
         self._stopping = False
         self._task: asyncio.Task | None = None
 
+    @property
+    def connected(self) -> bool:
+        return self._ready.is_set()
+
     async def start(self) -> None:
         self._task = asyncio.create_task(self._run())
 
