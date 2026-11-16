@@ -17,7 +17,7 @@ that server over one persistent MCP session.
 
 ```mermaid
 flowchart LR
-    UI[Streamlit UI] --> A[Chat / Dashboard pipelines]
+    UI[Web UI<br/>FastAPI + HTML/JS] --> A[Chat / Dashboard pipelines]
     A -->|schema + question,<br/>small aggregates only| LLM[OpenAI-compatible LLM]
     A -->|one persistent MCP session| S[MCP server<br/>guard + Polars SQL]
     S --> PQ[(Parquet + cached profile)]
@@ -97,10 +97,11 @@ Leave it running. You should see `[server] listening on 127.0.0.1:8050`.
 Open a **second** terminal in the same folder, activate the environment again (`source .venv/bin/activate`), and run:
 
 ```bash
-streamlit run src/csv_intelligence/ui/app.py
+csv-intelligence-web
 ```
 
-Your browser opens at <http://localhost:8501>. The sidebar shows **MCP server: running** when step 5 worked.
+Open <http://localhost:8000>. The top bar shows **MCP server connected** when step 5 worked. Set `WEB_PORT` to use
+another port.
 
 Run both commands from the repository root, so they share the `data/uploads` folder.
 
@@ -108,11 +109,15 @@ Run both commands from the repository root, so they share the `data/uploads` fol
 
 ## Try it
 
-1. In the sidebar, upload [`data/sample_sales.csv`](data/sample_sales.csv) (or any CSV).
+1. In the **Data** panel, drop [`data/sample_sales.csv`](data/sample_sales.csv) (or any CSV). Review the columns:
+   anything that looks like personal data is pre-set to be masked. You can also rename columns. Then
+   **Convert & load**.
 2. **Chat** tab, ask:
    - *Which region has the highest total revenue?*
    - *Top 3 products by units sold*
 3. **Dashboard** tab, ask: *Sales dashboard with revenue by region and monthly trend*
+4. Open **What the AI saw** under any answer to see the exact text the LLM received. Switch **Privacy** to
+   **Strict** to keep every query result on your machine.
 
 A chat answer makes at most two LLM calls (three if the first SQL needs fixing). A dashboard makes one.
 
@@ -120,7 +125,7 @@ A chat answer makes at most two LLM calls (three if the first SQL needs fixing).
 
 | Problem | Fix |
 |---|---|
-| Sidebar says **MCP server: not running** | Do step 5 first, in its own terminal, from the repo root. Then refresh the page. |
+| Top bar says **MCP server not running** | Do step 5 first, in its own terminal, from the repo root. Then refresh the page. |
 | `Environment variable LLM_API_KEY is not set` | Create `.env` from `.env.example` (step 4) and set `LLM_API_KEY`. |
 | `Unsupported parameter: reasoning_effort` | Your model is not a reasoning model. Delete the `LLM_REASONING_EFFORT` line in `.env`. |
 | `command not found: csv-mcp-server` | Activate the virtual environment (step 2) and run `pip install -e .` again (step 3). |
@@ -158,10 +163,10 @@ src/csv_intelligence/
 │   ├── templates/          # dashboard.html
 │   └── static/             # Chart.js (vendored)
 ├── formatting.py           # number formatting
-├── ui/
-│   ├── app.py              # Streamlit app
-│   ├── uploads.py          # upload -> Parquet dataset
-│   └── health.py           # "is the MCP server up?" check
+├── web/
+│   ├── app.py              # FastAPI: upload review, streaming chat, dashboards
+│   ├── uploads.py          # stage + PII scan, then convert with the user's choices
+│   └── static/             # index.html, app.js, app.css (no CDN)
 └── settings.py
 tests/                      # pytest suite (no network or API key needed)
 data/sample_sales.csv       # sample data to try
