@@ -18,6 +18,7 @@ from csv_intelligence.settings import load_settings
 from csv_intelligence.sql.analysis import string_filters
 from csv_intelligence.sql.filters import closest_value, replace_string_literals
 from csv_intelligence.sql.guard import parse_select
+from csv_intelligence.timing import Timer
 
 _startup = load_settings()
 mcp = FastMCP("analyst", host=_startup.mcp_host, port=_startup.mcp_port)
@@ -101,15 +102,18 @@ def match_filter_values(path: Path, query: str) -> list[dict[str, Any]]:
     return matches
 
 
-def answer_query(path: Path, query: str, max_rows: int) -> dict[str, Any]:
+def answer_query(path: Path, query: str, max_rows: int, timer: Timer) -> dict[str, Any]:
     """Fix filter values to match the data, then run the query. Returns the SQL that actually ran."""
-    matches = match_filter_values(path, query)
-    final_sql = replace_string_literals(
-        query, {match["requested"]: match["matched"] for match in matches if match["matched"]}
-    )
-    if final_sql != query:
-        parse_select(final_sql)
-    return {**query_parquet(path, final_sql, max_rows), "sql": final_sql, "filter_matches": matches}
+    with timer.step("match_filters"):
+        matches = match_filter_values(path, query)
+        final_sql = replace_string_literals(
+            query, {match["requested"]: match["matched"] for match in matches if match["matched"]}
+        )
+        if final_sql != query:
+            parse_select(final_sql)
+    with timer.step("query"):
+        result = query_parquet(path, final_sql, max_rows)
+    return {**result, "sql": final_sql, "filter_matches": matches}
 
 
 @mcp.tool()
@@ -135,19 +139,22 @@ async def run_sql(
     Text filter values are matched to the stored spelling ('south' -> 'South'); the response's
     `sql` is the query that actually ran and `filter_matches` lists what was changed.
     Results are capped at MAX_RESULT_ROWS and the query is stopped after QUERY_TIMEOUT_SECONDS.
+    `timings_ms` reports check_sql, match_filters and query.
     """
-    settings = load_settings()
+    settings, timer = load_settings(), Timer()
     path = datasets.resolve_inside_uploads(settings.upload_dir, dataset, ".parquet")
-    parse_select(query)
+    with timer.step("check_sql"):
+        parse_select(query)
     try:
-        return await asyncio.wait_for(
-            asyncio.to_thread(answer_query, path, query, settings.max_result_rows),
+        result = await asyncio.wait_for(
+            asyncio.to_thread(answer_query, path, query, settings.max_result_rows, timer),
             timeout=settings.query_timeout_seconds,
         )
     except TimeoutError as error:
         raise QueryTimeoutError(
             f"The query took longer than {settings.query_timeout_seconds:g}s and was stopped"
         ) from error
+    return {**result, "timings_ms": timer.ms}
 
 
 def main() -> None:

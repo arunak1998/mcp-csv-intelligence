@@ -121,3 +121,9 @@ async def test_run_sql_leaves_exact_filters_alone(sales_dataset):
     result = await analyst.run_sql(sales_dataset, query)
     assert result["sql"] == query
     assert result["filter_matches"] == []
+
+
+async def test_run_sql_reports_its_own_steps(sales_dataset):
+    result = await analyst.run_sql(sales_dataset, "SELECT COUNT(*) AS n FROM self WHERE region = 'south'")
+    assert list(result["timings_ms"]) == ["check_sql", "match_filters", "query"]
+    assert all(isinstance(ms, int) and ms >= 0 for ms in result["timings_ms"].values())
