@@ -16,3 +16,10 @@ def format_value(value: Any) -> str:
     if isinstance(value, float):
         return f"{value:,.2f}"
     return str(value)
+
+
+def label_text(value: Any) -> str:
+    """A value used as a label (category, ID, year): never grouped, so 2025 stays '2025', not '2,025'."""
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return "" if value is None else str(value)
