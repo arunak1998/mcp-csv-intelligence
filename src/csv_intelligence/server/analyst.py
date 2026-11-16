@@ -1,5 +1,6 @@
 """MCP server: lists datasets, returns their cached profile and runs Polars SQL on the Parquet file."""
 
+import asyncio
 import sys
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
@@ -14,6 +15,7 @@ from csv_intelligence.data import datasets
 from csv_intelligence.data.profile import load_profile
 from csv_intelligence.server.sql_reference import describe_sql_functions
 from csv_intelligence.settings import load_settings
+from csv_intelligence.sql.guard import parse_select
 
 _startup = load_settings()
 mcp = FastMCP("analyst", host=_startup.mcp_host, port=_startup.mcp_port)
@@ -40,6 +42,10 @@ def to_json_value(value: Any) -> Any:
     return value
 
 
+class QueryTimeoutError(TimeoutError):
+    """The query ran longer than QUERY_TIMEOUT_SECONDS."""
+
+
 def query_parquet(path: Path, query: str, max_rows: int) -> dict[str, Any]:
     """Run query lazily on the Parquet file and return at most max_rows rows."""
     frame = pl.scan_parquet(path).sql(query).limit(max_rows + 1).collect()
@@ -62,17 +68,31 @@ def list_datasets() -> dict[str, list[str]]:
 @mcp.tool()
 def get_schema(dataset: str) -> dict[str, Any]:
     """Column names, types and summary statistics of a dataset. No rows are returned."""
-    return load_profile(datasets.profile_path(upload_dir(), dataset))
+    return load_profile(datasets.resolve_inside_uploads(upload_dir(), dataset, ".profile.json"))
 
 
 @mcp.tool()
-def run_sql(
+async def run_sql(
     dataset: str,
     query: Annotated[str, Field(description=QUERY_DESCRIPTION)],
 ) -> dict[str, Any]:
-    """Run one read-only Polars SQL query on a dataset and return columns and rows."""
+    """Run one read-only Polars SQL query on a dataset and return columns and rows.
+
+    The query is checked before it runs: one SELECT statement, reading only `self`.
+    Results are capped at MAX_RESULT_ROWS and the query is stopped after QUERY_TIMEOUT_SECONDS.
+    """
     settings = load_settings()
-    return query_parquet(datasets.parquet_path(settings.upload_dir, dataset), query, settings.max_result_rows)
+    path = datasets.resolve_inside_uploads(settings.upload_dir, dataset, ".parquet")
+    parse_select(query)
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(query_parquet, path, query, settings.max_result_rows),
+            timeout=settings.query_timeout_seconds,
+        )
+    except TimeoutError as error:
+        raise QueryTimeoutError(
+            f"The query took longer than {settings.query_timeout_seconds:g}s and was stopped"
+        ) from error
 
 
 def main() -> None:

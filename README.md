@@ -160,6 +160,15 @@ ruff check . && ruff format --check .
 
 ## Security notes
 
-- The server listens on `127.0.0.1` only. Set `MCP_HOST=0.0.0.0` only inside a container or behind authentication:
-  its tools read any file path they are given and run arbitrary SQL on it.
+Every query passes these checks on the MCP server before it runs:
+
+| Check | What it stops |
+|---|---|
+| **Upload-folder sandbox.** Tools take a dataset *name* (letters, digits, `_`, `-`) and the resolved file must be inside `UPLOAD_DIR`. | `../` paths, absolute paths, symlinks to files elsewhere |
+| **SELECT only** (parsed with [sqlglot](https://github.com/tobymao/sqlglot)). Exactly one statement, and it must be a query. | `DROP`, `CREATE`, `DELETE`, `INSERT`, `COPY`, `SELECT ... INTO`, `SHOW`, stacked `; ...` statements |
+| **Table allow-list.** Only `self` and the query's own CTEs can be read. | Polars SQL file functions such as `FROM read_csv('/etc/passwd')` or `read_parquet(...)` |
+| **Row limit.** At most `MAX_RESULT_ROWS` rows (default 1000) are returned, with a `truncated` flag. | Dumping a large table |
+| **Timeout.** The tool gives up after `QUERY_TIMEOUT_SECONDS` (default 10). | A runaway query blocking the answer. The Polars thread itself cannot be killed, so it finishes in the background. |
+
+- The server listens on `127.0.0.1` only. Set `MCP_HOST=0.0.0.0` only inside a container or behind authentication.
 - Never commit `.env` or share your API key.
