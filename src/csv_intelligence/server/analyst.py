@@ -15,6 +15,8 @@ from csv_intelligence.data import datasets
 from csv_intelligence.data.profile import load_profile
 from csv_intelligence.server.sql_reference import describe_sql_functions
 from csv_intelligence.settings import load_settings
+from csv_intelligence.sql.analysis import string_filters
+from csv_intelligence.sql.filters import closest_value, replace_string_literals
 from csv_intelligence.sql.guard import parse_select
 
 _startup = load_settings()
@@ -42,6 +44,11 @@ def to_json_value(value: Any) -> Any:
     return value
 
 
+# Text columns with more distinct values than this are not matched (they are rarely filtered by equality).
+MAX_DISTINCT_FOR_MATCHING = 50_000
+TEXT_TYPES = (pl.String, pl.Categorical, pl.Enum)
+
+
 class QueryTimeoutError(TimeoutError):
     """The query ran longer than QUERY_TIMEOUT_SECONDS."""
 
@@ -57,6 +64,52 @@ def query_parquet(path: Path, query: str, max_rows: int) -> dict[str, Any]:
         "row_count": frame.height,
         "truncated": truncated,
     }
+
+
+def distinct_text_values(path: Path, column: str) -> list[str] | None:
+    """Distinct values of a text column, or None when there are too many to match against."""
+    values = (
+        pl.scan_parquet(path)
+        .select(pl.col(column).cast(pl.String).drop_nulls().unique())
+        .head(MAX_DISTINCT_FOR_MATCHING + 1)
+        .collect()
+        .to_series()
+        .to_list()
+    )
+    return values if len(values) <= MAX_DISTINCT_FOR_MATCHING else None
+
+
+def match_filter_values(path: Path, query: str) -> list[dict[str, Any]]:
+    """Match each `text_column = 'value'` in the query to a value that really exists in that column.
+
+    Returns one entry per value that was changed ('south' -> 'South') or not found (matched: None).
+    This runs here, next to the data; the LLM never sees the column's values.
+    """
+    text_columns = {
+        name
+        for name, dtype in pl.scan_parquet(path).collect_schema().items()
+        if isinstance(dtype, TEXT_TYPES)
+    }
+    matches = []
+    for column, requested in dict.fromkeys(string_filters(parse_select(query))):
+        stored = distinct_text_values(path, column) if column in text_columns else None
+        if stored is None:
+            continue
+        matched = closest_value(requested, stored)
+        if matched != requested:
+            matches.append({"column": column, "requested": requested, "matched": matched})
+    return matches
+
+
+def answer_query(path: Path, query: str, max_rows: int) -> dict[str, Any]:
+    """Fix filter values to match the data, then run the query. Returns the SQL that actually ran."""
+    matches = match_filter_values(path, query)
+    final_sql = replace_string_literals(
+        query, {match["requested"]: match["matched"] for match in matches if match["matched"]}
+    )
+    if final_sql != query:
+        parse_select(final_sql)
+    return {**query_parquet(path, final_sql, max_rows), "sql": final_sql, "filter_matches": matches}
 
 
 @mcp.tool()
@@ -79,6 +132,8 @@ async def run_sql(
     """Run one read-only Polars SQL query on a dataset and return columns and rows.
 
     The query is checked before it runs: one SELECT statement, reading only `self`.
+    Text filter values are matched to the stored spelling ('south' -> 'South'); the response's
+    `sql` is the query that actually ran and `filter_matches` lists what was changed.
     Results are capped at MAX_RESULT_ROWS and the query is stopped after QUERY_TIMEOUT_SECONDS.
     """
     settings = load_settings()
@@ -86,7 +141,7 @@ async def run_sql(
     parse_select(query)
     try:
         return await asyncio.wait_for(
-            asyncio.to_thread(query_parquet, path, query, settings.max_result_rows),
+            asyncio.to_thread(answer_query, path, query, settings.max_result_rows),
             timeout=settings.query_timeout_seconds,
         )
     except TimeoutError as error:

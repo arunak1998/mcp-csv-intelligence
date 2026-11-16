@@ -98,3 +98,26 @@ async def test_run_sql_stops_slow_queries(sales_dataset, monkeypatch):
 async def test_unsafe_query_through_mcp_registry_is_reported_as_a_tool_error(sales_dataset):
     with pytest.raises(ToolError, match="Only SELECT"):
         await analyst.mcp.call_tool("run_sql", {"dataset": sales_dataset, "query": "DROP TABLE self"})
+
+
+async def test_run_sql_matches_filter_values_to_the_stored_spelling(sales_dataset):
+    result = await analyst.run_sql(
+        sales_dataset,
+        "SELECT COUNT(*) AS n FROM self WHERE region = 'south' AND product IN ('laptops', 'Atlantis')",
+    )
+    assert result["sql"] == (
+        "SELECT COUNT(*) AS n FROM self WHERE region = 'South' AND product IN ('Laptop', 'Atlantis')"
+    )
+    assert result["filter_matches"] == [
+        {"column": "region", "requested": "south", "matched": "South"},
+        {"column": "product", "requested": "laptops", "matched": "Laptop"},
+        {"column": "product", "requested": "Atlantis", "matched": None},
+    ]
+    assert result["rows"][0][0] > 0
+
+
+async def test_run_sql_leaves_exact_filters_alone(sales_dataset):
+    query = "SELECT COUNT(*) AS n FROM self WHERE region = 'South'"
+    result = await analyst.run_sql(sales_dataset, query)
+    assert result["sql"] == query
+    assert result["filter_matches"] == []

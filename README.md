@@ -158,6 +158,20 @@ pytest                          # tests use fakes; no API key needed
 ruff check . && ruff format --check .
 ```
 
+## Privacy
+
+The data stays on your machine. The LLM gets a description of it, not the rows.
+
+| What | How |
+|---|---|
+| **Schema-only prompts** | The LLM receives column names, types and summary stats (row count, nulls, distinct count, numeric/date min/max/mean). It never receives rows, text values or the file name. |
+| **Local filter matching** | The LLM may write `region = 'south'`. Before the query runs, the MCP server matches `'south'` to the stored value `'South'` (case, spaces, close spellings such as `'laptops'` → `'Laptop'`). The answer reports what was changed, or that nothing matched. |
+| **Aggregates-only insights** | After a query runs, its result goes to the LLM for insights only if it is a small aggregate (≤ `INSIGHT_MAX_ROWS`, default 20), is not grouped by an ID-like column, and uses no unmasked personal-data column. Otherwise the summary is written locally. |
+| **Strict mode** | `PRIVACY_MODE=strict`: query results are never sent. The LLM only sees the schema and the question, and the summary is written locally from the result table. |
+| **PII scan on upload** | Email and phone columns are flagged by their values; name, email and phone columns are also flagged by header. You can mask any column (values become stable tokens like `email_4821…`, so counts and grouping still work) or rename it before it is saved. Masked raw values are never written to disk. Personal-data columns get no min/max/mean in the profile. |
+
+Name detection uses column headers only: values alone can't tell a person's name from a product name.
+
 ## Security notes
 
 Every query passes these checks on the MCP server before it runs:
