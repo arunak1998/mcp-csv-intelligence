@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from csv_intelligence.data.ingest import ingest_csv
+from csv_intelligence.data.ingest import ingest_file
 
 
 class FakeLLM:
@@ -70,7 +70,7 @@ def sales_dataset(upload_dir, tmp_path) -> str:
     """The sample sales CSV converted to a dataset; returns its name."""
     copy = tmp_path / "sample_sales.csv"
     shutil.copy(SAMPLE_CSV, copy)
-    return ingest_csv(copy, upload_dir, "sample_sales.csv")["dataset"]
+    return ingest_file(copy, upload_dir, "sample_sales.csv")["dataset"]
 
 
 @pytest.fixture

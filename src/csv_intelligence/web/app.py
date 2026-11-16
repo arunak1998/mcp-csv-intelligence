@@ -22,6 +22,7 @@ from csv_intelligence.agents.llm import create_llm
 from csv_intelligence.agents.mcp_client import McpClient, McpUnavailableError
 from csv_intelligence.dashboards.render import render_dashboard
 from csv_intelligence.data.datasets import remove_all_datasets
+from csv_intelligence.data.ingest import warm_up_excel_reader
 from csv_intelligence.settings import load_settings
 from csv_intelligence.sql.guard import warm_up
 from csv_intelligence.timing import Timer
@@ -171,6 +172,8 @@ def create_app(mcp: Any = None, llm_factory: Callable[[], BaseChatModel] = creat
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         warm_up()
+        # In the background, so the app starts at once; the first Excel upload then reads in milliseconds.
+        app.state.excel_warm_up = asyncio.create_task(asyncio.to_thread(warm_up_excel_reader))
         if mcp is not None:
             app.state.mcp = mcp
             yield
@@ -196,7 +199,8 @@ app = create_app()
 def main() -> None:
     import uvicorn
 
-    logging.basicConfig(level=logging.INFO, format="[web] %(message)s")
+    logging.basicConfig(level=logging.WARNING, format="[web] %(message)s")
+    logging.getLogger("csv_intelligence").setLevel(logging.INFO)  # our timings; not every HTTP request
     host = os.getenv("WEB_HOST", "127.0.0.1")
     port = int(os.getenv("WEB_PORT", "8000"))
     print(f"[web] open http://{'localhost' if host == '127.0.0.1' else host}:{port}", flush=True)

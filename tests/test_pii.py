@@ -1,7 +1,7 @@
 import polars as pl
 import pytest
 
-from csv_intelligence.data.ingest import ingest_csv
+from csv_intelligence.data.ingest import ingest_file
 from csv_intelligence.data.pii import PiiFinding, apply_privacy_choices, scan_pii
 
 PEOPLE = pl.DataFrame(
@@ -64,7 +64,7 @@ def test_ingest_never_stores_masked_values_and_hides_their_stats(upload_dir, tmp
     csv = tmp_path / "people.csv"
     PEOPLE.write_csv(csv)
 
-    profile = ingest_csv(csv, upload_dir, "people.csv", {"contact": {"mask": True}})
+    profile = ingest_file(csv, upload_dir, "people.csv", {"contact": {"mask": True}})
 
     stored = pl.read_parquet(upload_dir / "people.parquet")
     assert "ann@example.com" not in stored["contact"].to_list()

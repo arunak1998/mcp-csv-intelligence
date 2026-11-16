@@ -43,7 +43,7 @@ def test_upload_review_then_ingest_with_masking(upload_dir):
             ("email", "email"),
         }
         assert review["preview"][0] == ["Ann Lee", "ann@example.com", "10"]
-        assert list(review["timings_ms"]) == ["read_csv", "pii_scan", "total"]
+        assert list(review["timings_ms"]) == ["read_file", "pii_scan", "total"]
 
         profile = client.post(
             "/api/ingest",
@@ -53,7 +53,7 @@ def test_upload_review_then_ingest_with_masking(upload_dir):
             },
         ).json()
         assert [c["name"] for c in profile["columns"]] == ["buyer", "email", "amount"]
-        assert list(profile["timings_ms"]) == ["read_csv", "privacy", "write_parquet", "profile", "total"]
+        assert list(profile["timings_ms"]) == ["read_file", "privacy", "write_parquet", "profile", "total"]
         assert client.get("/api/status").json()["dataset"]["dataset"] == "people"
     assert not (upload_dir / ".staging").exists()
 
@@ -161,3 +161,48 @@ def test_status_answers_fast_when_the_mcp_server_is_down(upload_dir, monkeypatch
         elapsed = time.monotonic() - started
     assert status["mcp_connected"] is False and status["dataset"] is None
     assert elapsed < 3
+
+
+def excel_bytes(tmp_path, sheets: dict) -> bytes:
+    import polars as pl
+    import xlsxwriter
+
+    path = tmp_path / "book.xlsx"
+    with xlsxwriter.Workbook(path) as workbook:
+        for sheet, rows in sheets.items():
+            pl.DataFrame(rows).write_excel(workbook, worksheet=sheet)
+    return path.read_bytes()
+
+
+def test_excel_upload_uses_the_first_sheet_and_becomes_parquet(upload_dir, tmp_path):
+    content = excel_bytes(
+        tmp_path,
+        {
+            "Sales": {"region": ["North", "South"], "email": ["a@x.com", "b@y.org"], "revenue": [10, 20]},
+            "Notes": {"note": ["ignore me"]},
+        },
+    )
+    with client_for() as client:
+        review = client.post("/api/upload", files={"file": ("Q1 Sales.xlsx", content)}).json()
+        assert review["sheets"] == ["Sales", "Notes"]
+        assert [c["name"] for c in review["columns"]] == ["region", "email", "revenue"]
+        assert [f["column"] for f in review["pii"]] == ["email"]
+
+        profile = client.post(
+            "/api/ingest", json={"upload_id": review["upload_id"], "choices": {"email": {"mask": True}}}
+        ).json()
+    assert profile["dataset"] == "Q1_Sales" and profile["source_file"] == "Q1 Sales.xlsx"
+    assert (upload_dir / "Q1_Sales.parquet").exists() and not list(upload_dir.glob("*.xlsx"))
+
+
+def test_csv_upload_reports_no_sheets(upload_dir):
+    with client_for() as client:
+        review = client.post("/api/upload", files={"file": ("a.csv", b"a\n1\n")}).json()
+    assert review["sheets"] is None
+
+
+def test_unsupported_file_type_is_400(upload_dir):
+    with client_for() as client:
+        response = client.post("/api/upload", files={"file": ("notes.txt", b"hello")})
+    assert response.status_code == 400 and "CSV or Excel" in response.json()["detail"]
+    assert not (upload_dir / ".staging").exists()
