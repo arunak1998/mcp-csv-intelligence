@@ -6,6 +6,7 @@ from typing import Any
 import polars as pl
 
 from csv_intelligence.data.datasets import dataset_name, parquet_path, profile_path, remove_all_datasets
+from csv_intelligence.data.pii import apply_privacy_choices, scan_pii
 from csv_intelligence.data.profile import build_profile, save_profile
 
 # Rows Polars looks at to guess column types; enough to see past a few blank or odd early rows.
@@ -28,20 +29,31 @@ def read_csv(path: Path) -> pl.DataFrame:
     return df.rename(dict(zip(df.columns, clean_column_names(df.columns), strict=True)))
 
 
-def save_dataset(df: pl.DataFrame, upload_dir: Path, source_file: str) -> dict[str, Any]:
+def save_dataset(
+    df: pl.DataFrame, upload_dir: Path, source_file: str, privacy: dict[str, dict[str, Any]] | None = None
+) -> dict[str, Any]:
     """Store df as the only dataset in upload_dir and return its profile."""
     name = dataset_name(source_file)
     upload_dir.mkdir(parents=True, exist_ok=True)
     remove_all_datasets(upload_dir)
     df.write_parquet(parquet_path(upload_dir, name))
-    profile = build_profile(df, name, source_file)
+    profile = build_profile(df, name, source_file, privacy)
     save_profile(profile, profile_path(upload_dir, name))
     return profile
 
 
-def ingest_csv(csv_path: Path, upload_dir: Path, source_file: str) -> dict[str, Any]:
-    """Convert a CSV to Parquet + profile; the CSV itself is not kept."""
+def ingest_csv(
+    csv_path: Path,
+    upload_dir: Path,
+    source_file: str,
+    choices: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Convert a CSV to Parquet + profile, applying the user's mask/rename choices; the CSV is not kept.
+
+    Masking happens before anything is written, so the stored dataset never holds the raw values.
+    """
     df = read_csv(csv_path)
-    profile = save_dataset(df, upload_dir, source_file)
+    df, privacy = apply_privacy_choices(df, scan_pii(df), choices or {})
+    profile = save_dataset(df, upload_dir, source_file, privacy)
     csv_path.unlink(missing_ok=True)
     return profile

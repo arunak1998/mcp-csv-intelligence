@@ -35,13 +35,24 @@ def column_stats(series: pl.Series) -> dict[str, Any]:
     return stats
 
 
-def build_profile(df: pl.DataFrame, name: str, source_file: str) -> dict[str, Any]:
-    return {
-        "dataset": name,
-        "source_file": source_file,
-        "row_count": df.height,
-        "columns": [column_stats(df[column]) for column in df.columns],
-    }
+def private_column_stats(series: pl.Series, flags: dict[str, Any]) -> dict[str, Any]:
+    """Stats for a personal-data column: counts only (no min/max/mean), plus its privacy flags."""
+    stats = column_stats(series)
+    for key in ("min", "max", "mean"):
+        stats.pop(key, None)
+    return {**stats, **flags}
+
+
+def build_profile(
+    df: pl.DataFrame, name: str, source_file: str, privacy: dict[str, dict[str, Any]] | None = None
+) -> dict[str, Any]:
+    """privacy: {column: {"pii": kind | None, "masked": bool}} from the upload's PII review."""
+    privacy = privacy or {}
+    columns = [
+        private_column_stats(df[column], privacy[column]) if column in privacy else column_stats(df[column])
+        for column in df.columns
+    ]
+    return {"dataset": name, "source_file": source_file, "row_count": df.height, "columns": columns}
 
 
 def save_profile(profile: dict[str, Any], path: Path) -> None:
