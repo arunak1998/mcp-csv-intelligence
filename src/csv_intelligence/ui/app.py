@@ -45,7 +45,8 @@ def render_sidebar() -> None:
             uploaded = st.file_uploader("Choose a CSV file", type=["csv"])
             if uploaded is not None:
                 content = uploaded.getvalue()
-                location = save_upload(uploaded.name, content)
+                profile = save_upload(uploaded.name, content)
+                location = f"dataset {profile['dataset']} ({profile['row_count']:,} rows, Parquet)"
                 st.session_state.file = {
                     "name": uploaded.name,
                     "location": str(location),
