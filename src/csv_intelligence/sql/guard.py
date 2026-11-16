@@ -67,3 +67,8 @@ def parse_select(sql: str) -> exp.Query:
     _check_tables(tree)
     _check_functions(tree)
     return tree
+
+
+def warm_up() -> None:
+    """Parse once at startup: sqlglot loads its dialect on first use (~0.1 s), not on the first question."""
+    parse_select(f"SELECT 1 AS warm_up FROM {TABLE}")

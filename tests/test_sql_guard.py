@@ -53,3 +53,9 @@ def test_only_the_dataset_table_can_be_read(sql):
 def test_file_reading_functions_are_rejected_anywhere():
     with pytest.raises(UnsafeQueryError, match="File-reading function"):
         parse_select("SELECT read_csv('/etc/passwd') AS x FROM self")
+
+
+def test_warm_up_parses_a_query_once():
+    from csv_intelligence.sql.guard import warm_up
+
+    warm_up()  # must not raise; it only loads the dialect ahead of the first real question

@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 import os
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
@@ -22,9 +23,12 @@ from csv_intelligence.agents.mcp_client import McpClient, McpUnavailableError
 from csv_intelligence.dashboards.render import render_dashboard
 from csv_intelligence.data.datasets import remove_all_datasets
 from csv_intelligence.settings import load_settings
+from csv_intelligence.sql.guard import warm_up
+from csv_intelligence.timing import Timer
 from csv_intelligence.web.uploads import UnknownUploadError, ingest_staged, stage_upload
 
 STATIC_DIR = Path(__file__).parent / "static"
+logger = logging.getLogger("csv_intelligence.web")
 # How long /api/status waits for the MCP session before reporting it as not connected.
 STATUS_CONNECT_WAIT_SECONDS = 1.0
 
@@ -120,6 +124,8 @@ async def chat_events(request: Request, body: ChatRequest) -> AsyncIterator[str]
         async for event in answer_question(
             body.question, request.app.state.mcp, llm, mode, settings.insight_max_rows
         ):
+            if event["type"] in ("done", "error"):
+                logger.info("chat %s in %s", event["type"], event["timings_ms"])
             yield sse(event)
     except Exception as error:  # surface setup problems (no API key, MCP down) in the chat itself
         yield sse({"type": "error", "message": str(error), "audit": [], "timings_ms": {}})
@@ -137,16 +143,25 @@ async def chat(request: Request, body: ChatRequest) -> StreamingResponse:
 
 @router.post("/api/dashboard")
 async def dashboard(request: Request, body: DashboardRequest) -> dict[str, Any]:
+    """Rendered dashboard plus What the AI saw, step timings (render included) and per-metric times."""
+    timer = Timer()
     try:
-        result = await build_dashboard(body.question, request.app.state.mcp, request.app.state.llm_factory())
+        result = await build_dashboard(
+            body.question, request.app.state.mcp, request.app.state.llm_factory(), timer
+        )
     except McpUnavailableError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
     except (ValueError, RuntimeError) as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
+    with timer.step("render"):
+        html = render_dashboard(result["spec"])
+    timings = timer.report()
+    logger.info("dashboard built in %s", timings)
     return {
-        "html": render_dashboard(result["spec"]),
+        "html": html,
         "audit": result["audit"],
-        "timings_ms": result["timings_ms"],
+        "timings_ms": timings,
+        "metric_timings": result["metric_timings"],
     }
 
 
@@ -155,6 +170,7 @@ def create_app(mcp: Any = None, llm_factory: Callable[[], BaseChatModel] = creat
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        warm_up()
         if mcp is not None:
             app.state.mcp = mcp
             yield
@@ -180,6 +196,7 @@ app = create_app()
 def main() -> None:
     import uvicorn
 
+    logging.basicConfig(level=logging.INFO, format="[web] %(message)s")
     host = os.getenv("WEB_HOST", "127.0.0.1")
     port = int(os.getenv("WEB_PORT", "8000"))
     print(f"[web] open http://{'localhost' if host == '127.0.0.1' else host}:{port}", flush=True)

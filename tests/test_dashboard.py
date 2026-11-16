@@ -40,7 +40,14 @@ async def test_dashboard_plans_once_and_builds_the_spec_locally(mcp, fake_llm):
     assert spec["skipped"][0]["title"] == "Broken" and "nope" in spec["skipped"][0]["reason"]
     assert len(llm.received) == 1  # one planning call; results never go back to the LLM
     assert [call["step"] for call in dashboard["audit"]] == ["plan_dashboard"]
-    assert set(dashboard["timings_ms"]) == {"plan", "queries"}
+    assert list(dashboard["timings_ms"]) == ["load_dataset", "plan", "queries", "build_spec", "total"]
+    assert [(m["title"], m["ok"]) for m in dashboard["metric_timings"]] == [
+        ("Revenue", True),
+        ("By region", True),
+        ("Broken", False),
+        ("Odd chart", True),
+    ]
+    assert all(m["ms"] >= 0 for m in dashboard["metric_timings"])
 
 
 async def test_the_plan_prompt_has_the_schema_but_no_values(mcp, fake_llm):

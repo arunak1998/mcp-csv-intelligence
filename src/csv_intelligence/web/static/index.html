@@ -42,6 +42,7 @@
       <div class="file-head">
         <div><strong id="review-name"></strong><span class="muted" id="review-rows"></span></div>
       </div>
+      <p class="timings muted" id="review-timings"></p>
       <div id="pii-summary" class="notice"></div>
       <p class="hint">Masked values become stable tokens (counts and grouping still work). Renamed headers hide what a column holds.</p>
       <div class="table-wrap review-table">
@@ -66,6 +67,7 @@
         <div><strong id="dataset-name"></strong><span class="muted" id="dataset-rows"></span></div>
         <button type="button" class="btn small" id="remove-btn">Remove</button>
       </div>
+      <p class="timings muted" id="dataset-timings" hidden></p>
       <p class="hint">Stored as Parquet. The AI sees these names, types and statistics, never the rows.</p>
       <ul class="columns" id="dataset-columns"></ul>
     </section>
@@ -104,6 +106,7 @@
           <button type="button" class="btn small" id="dashboard-download">Download HTML</button>
           <span class="muted" id="dashboard-timings"></span>
         </div>
+        <details class="metric-timings" id="dashboard-metric-timings"></details>
         <details class="ai-saw" id="dashboard-audit"></details>
       </div>
     </div>
