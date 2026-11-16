@@ -12,7 +12,7 @@ from typing import Any
 
 from sqlglot import exp
 
-from csv_intelligence.formatting import format_value, is_number
+from csv_intelligence.formatting import format_value, is_number, label_text
 from csv_intelligence.sql.analysis import group_by_columns, referenced_columns, returns_only_aggregates
 
 SCHEMA_KEYS = ("name", "dtype", "nulls", "distinct", "min", "max", "mean", "masked")
@@ -93,6 +93,6 @@ def local_summary(result: dict[str, Any]) -> str:
     bottom = min(rows, key=lambda row: row[measure])
     name = columns[measure]
     return (
-        f"{summary} Highest {name}: **{format_value(top[0])}** ({format_value(top[measure])}). "
-        f"Lowest: **{format_value(bottom[0])}** ({format_value(bottom[measure])})."
+        f"{summary} Highest {name}: **{label_text(top[0])}** ({format_value(top[measure])}). "
+        f"Lowest: **{label_text(bottom[0])}** ({format_value(bottom[measure])})."
     )

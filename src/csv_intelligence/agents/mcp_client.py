@@ -30,6 +30,13 @@ class ToolCallError(RuntimeError):
     """The server ran the tool and reported an error (bad SQL, unknown dataset, timeout, ...)."""
 
 
+def root_cause(error: BaseException) -> BaseException:
+    """The first underlying error inside (possibly nested) exception groups."""
+    while isinstance(error, BaseExceptionGroup) and error.exceptions:
+        error = error.exceptions[0]
+    return error
+
+
 def tool_result(result: Any) -> dict[str, Any]:
     """The tool's dict result. Every tool on our server returns a dict."""
     text = "\n".join(block.text for block in result.content if getattr(block, "text", None))
@@ -57,6 +64,19 @@ class McpClient:
         self._closed = asyncio.Event()  # set when the current session ends; a new one per session
         self._stopping = False
         self._task: asyncio.Task | None = None
+        self._reported_failure = False
+
+    @property
+    def connected(self) -> bool:
+        return self._ready.is_set()
+
+    async def wait_until_connected(self, timeout: float) -> bool:
+        """True once a session is ready, or False after timeout (without raising)."""
+        try:
+            await asyncio.wait_for(self._ready.wait(), timeout=timeout)
+        except TimeoutError:
+            return False
+        return True
 
     async def start(self) -> None:
         self._task = asyncio.create_task(self._run())
@@ -80,9 +100,11 @@ class McpClient:
                         await session.initialize()
                         self._session, self._closed = session, closed
                         self._ready.set()
+                        self._reported_failure = False
+                        logger.info("Connected to the MCP server at %s", self.url)
                         await self._disconnect.wait()
             except Exception as error:  # the server is down or went away; try again shortly
-                logger.warning("MCP connection to %s failed: %s", self.url, error)
+                self._report_failure(error)
             finally:
                 closed.set()
                 self._session = None
@@ -90,6 +112,18 @@ class McpClient:
                 self._disconnect.clear()
             if not self._stopping:
                 await asyncio.sleep(RETRY_DELAY_SECONDS)
+
+    def _report_failure(self, error: BaseException) -> None:
+        """Warn once per outage with the real cause; repeat attempts are logged at debug level."""
+        level = logging.DEBUG if self._reported_failure else logging.WARNING
+        logger.log(
+            level,
+            "MCP server at %s is not reachable (%s); retrying every %ss",
+            self.url,
+            root_cause(error),
+            RETRY_DELAY_SECONDS,
+        )
+        self._reported_failure = True
 
     async def _wait_for_session(self) -> ClientSession:
         try:

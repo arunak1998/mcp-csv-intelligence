@@ -101,3 +101,13 @@ def test_local_summary_without_numbers_or_rows():
     text_only = {"columns": ["region"], "rows": [["North"], ["South"]], "row_count": 2, "truncated": True}
     assert local_summary(text_only) == "2 rows (showing the first ones)."
     assert local_summary({**SMALL, "rows": [], "row_count": 0}) == "The query returned no rows."
+
+
+def test_local_summary_keeps_ids_as_plain_labels():
+    rows = {
+        "columns": ["order_id", "revenue"],
+        "rows": [[1105, 4500], [1007, 3600]],
+        "row_count": 2,
+        "truncated": False,
+    }
+    assert local_summary(rows) == "2 rows. Highest revenue: **1105** (4,500). Lowest: **1007** (3,600)."

@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from csv_intelligence.formatting import format_value, is_number
+from csv_intelligence.formatting import format_value, is_number, label_text
 
 CHART_TYPES = ("kpi", "bar", "line", "share", "table")
 MAX_POINTS = 50  # bars or line points per chart
@@ -26,7 +26,7 @@ def _series_chart(
     rows = rows[:MAX_POINTS]
     return {
         "chart": chart,
-        "labels": [format_value(row[0]) for row in rows],
+        "labels": [label_text(row[0]) for row in rows],
         "datasets": [
             {"label": columns[index], "data": [row[index] for row in rows]} for index in numeric[:MAX_SERIES]
         ],
@@ -36,7 +36,7 @@ def _series_chart(
 def _share(columns: list[str], rows: list[list[Any]], value_index: int) -> dict[str, Any]:
     """Part of a whole as ranked bars of percentage share, folding the tail into 'Other'."""
     ranked = sorted(rows, key=lambda row: row[value_index], reverse=True)
-    parts = [(format_value(row[0]), row[value_index]) for row in ranked]
+    parts = [(label_text(row[0]), row[value_index]) for row in ranked]
     if len(parts) > MAX_SHARE_PARTS:
         kept = parts[: MAX_SHARE_PARTS - 1]
         parts = [*kept, ("Other", sum(value for _, value in parts[MAX_SHARE_PARTS - 1 :]))]

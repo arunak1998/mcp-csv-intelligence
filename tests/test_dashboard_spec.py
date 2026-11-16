@@ -71,3 +71,8 @@ def test_rendered_page_is_self_contained_and_escapes_text():
     assert "cdn." not in html
     assert "Chart.js" in html  # inlined library
     assert 'data-panel="0"' in html
+
+
+def test_numeric_labels_are_not_grouped():
+    panel = build_panel("line", result(["year", "n"], [[2024, 1], [2025.0, 2]]))
+    assert panel["labels"] == ["2024", "2025"]

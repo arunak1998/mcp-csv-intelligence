@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CSV Intelligence</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect x='1' y='9' width='3' height='6' rx='1' fill='%232a78d6'/><rect x='6.5' y='5' width='3' height='10' rx='1' fill='%232a78d6'/><rect x='12' y='1' width='3' height='14' rx='1' fill='%232a78d6'/></svg>">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1" y="9" width="3" height="6" rx="1"/><rect x="6.5" y="5" width="3" height="10" rx="1"/><rect x="12" y="1" width="3" height="14" rx="1"/></svg>
+    CSV Intelligence
+  </div>
+  <div class="topbar-right">
+    <span id="server-status" class="pill"><span class="dot"></span><span class="label">Checking server…</span></span>
+    <div class="privacy" role="group" aria-label="Privacy mode">
+      <span class="privacy-label">Privacy</span>
+      <button type="button" class="seg" data-mode="standard" title="Small aggregate results may be sent to the AI to write insights">Standard</button>
+      <button type="button" class="seg" data-mode="strict" title="No query result is ever sent; only the schema and your question">Strict</button>
+    </div>
+  </div>
+</header>
+
+<main class="layout">
+  <aside class="panel data-panel" aria-label="Data">
+    <h2>Data</h2>
+
+    <section id="data-empty">
+      <label class="dropzone" id="dropzone">
+        <input type="file" id="file-input" accept=".csv,text/csv" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0-4 4m4-4 4 4M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>
+        <strong>Drop a CSV here</strong>
+        <span>or click to browse</span>
+      </label>
+      <p class="hint">The file is converted to Parquet on this machine and scanned for personal data before anything else happens.</p>
+      <p class="error" id="upload-error" hidden></p>
+    </section>
+
+    <section id="data-review" hidden>
+      <div class="file-head">
+        <div><strong id="review-name"></strong><span class="muted" id="review-rows"></span></div>
+      </div>
+      <div id="pii-summary" class="notice"></div>
+      <p class="hint">Masked values become stable tokens (counts and grouping still work). Renamed headers hide what a column holds.</p>
+      <div class="table-wrap review-table">
+        <table>
+          <thead><tr><th>Column</th><th>Mask</th><th>Rename to</th></tr></thead>
+          <tbody id="review-columns"></tbody>
+        </table>
+      </div>
+      <details class="preview">
+        <summary>Preview first rows (stays in your browser)</summary>
+        <div class="table-wrap"><table id="review-preview"></table></div>
+      </details>
+      <div class="actions">
+        <button type="button" class="btn primary" id="ingest-btn">Convert &amp; load</button>
+        <button type="button" class="btn" id="cancel-btn">Cancel</button>
+      </div>
+      <p class="error" id="ingest-error" hidden></p>
+    </section>
+
+    <section id="data-loaded" hidden>
+      <div class="file-head">
+        <div><strong id="dataset-name"></strong><span class="muted" id="dataset-rows"></span></div>
+        <button type="button" class="btn small" id="remove-btn">Remove</button>
+      </div>
+      <p class="hint">Stored as Parquet. The AI sees these names, types and statistics, never the rows.</p>
+      <ul class="columns" id="dataset-columns"></ul>
+    </section>
+  </aside>
+
+  <section class="panel work" aria-label="Analysis">
+    <nav class="tabs" role="tablist">
+      <button type="button" role="tab" class="tab active" data-tab="chat" aria-selected="true">Chat</button>
+      <button type="button" role="tab" class="tab" data-tab="dashboard" aria-selected="false">Dashboard</button>
+    </nav>
+
+    <div id="tab-chat" class="tab-body">
+      <div id="messages" class="messages">
+        <div class="empty-state" id="chat-empty">
+          <h3>Ask about your data</h3>
+          <p class="muted">Each answer shows the result table first, then the insights, and exactly what the AI saw.</p>
+          <div class="suggestions" id="suggestions"></div>
+        </div>
+      </div>
+      <form id="chat-form" class="composer">
+        <input id="chat-input" type="text" autocomplete="off" placeholder="Upload a CSV to start" disabled maxlength="2000">
+        <button type="submit" class="btn primary" id="chat-send" disabled>Ask</button>
+      </form>
+    </div>
+
+    <div id="tab-dashboard" class="tab-body" hidden>
+      <form id="dashboard-form" class="composer top">
+        <input id="dashboard-input" type="text" autocomplete="off" placeholder="e.g. Sales dashboard with revenue by region and monthly trend" disabled maxlength="2000">
+        <button type="submit" class="btn primary" id="dashboard-send" disabled>Build</button>
+      </form>
+      <div id="dashboard-status" class="status-line" hidden></div>
+      <p class="error" id="dashboard-error" hidden></p>
+      <div id="dashboard-result" hidden>
+        <iframe id="dashboard-frame" title="Dashboard"></iframe>
+        <div class="answer-footer">
+          <button type="button" class="btn small" id="dashboard-download">Download HTML</button>
+          <span class="muted" id="dashboard-timings"></span>
+        </div>
+        <details class="ai-saw" id="dashboard-audit"></details>
+      </div>
+    </div>
+  </section>
+</main>
+
+<template id="assistant-template">
+  <article class="message assistant">
+    <div class="status-line"><span class="spinner"></span><span class="status-text">Writing SQL from the schema…</span></div>
+    <div class="matches" hidden></div>
+    <div class="result" hidden></div>
+    <div class="answer-text" hidden></div>
+    <p class="privacy-note" hidden></p>
+    <details class="sql" hidden><summary>SQL</summary><pre></pre></details>
+    <details class="ai-saw" hidden></details>
+    <p class="timings muted" hidden></p>
+  </article>
+</template>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
