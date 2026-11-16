@@ -12,6 +12,7 @@ from typing import Any
 
 from sqlglot import exp
 
+from csv_intelligence.formatting import format_value, is_number
 from csv_intelligence.sql.analysis import group_by_columns, referenced_columns, returns_only_aggregates
 
 SCHEMA_KEYS = ("name", "dtype", "nulls", "distinct", "min", "max", "mean", "masked")
@@ -65,19 +66,9 @@ def insight_decision(
     return InsightDecision(True, f"Only this {result['row_count']}-row aggregate result was sent to the AI.")
 
 
-def format_value(value: Any) -> str:
-    if isinstance(value, bool) or value is None:
-        return str(value)
-    if isinstance(value, int):
-        return f"{value:,}"
-    if isinstance(value, float):
-        return f"{value:,.2f}"
-    return str(value)
-
-
 def _first_numeric_column(rows: list[list[Any]], start: int) -> int | None:
     for index in range(start, len(rows[0])):
-        if all(isinstance(row[index], int | float) and not isinstance(row[index], bool) for row in rows):
+        if all(is_number(row[index]) for row in rows):
             return index
     return None
 

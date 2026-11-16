@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ spec.title }}</title>
+<style>
+  :root {
+    color-scheme: light;
+    --page: #f9f9f7;
+    --surface: #fcfcfb;
+    --text-primary: #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted: #898781;
+    --grid: #e1e0d9;
+    --axis: #c3c2b7;
+    --border: rgba(11, 11, 11, 0.10);
+    --series-1: #2a78d6;
+    --series-2: #eb6834;
+    --series-3: #1baf7a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --page: #0d0d0d;
+      --surface: #1a1a19;
+      --text-primary: #f0efec;
+      --text-secondary: #c3c2b7;
+      --grid: #2c2c2a;
+      --axis: #383835;
+      --border: rgba(255, 255, 255, 0.10);
+      --series-1: #3987e5;
+      --series-2: #d95926;
+      --series-3: #199e70;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page: #0d0d0d;
+    --surface: #1a1a19;
+    --text-primary: #f0efec;
+    --text-secondary: #c3c2b7;
+    --grid: #2c2c2a;
+    --axis: #383835;
+    --border: rgba(255, 255, 255, 0.10);
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 16px;
+    background: var(--page);
+    color: var(--text-primary);
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  header { margin-bottom: 16px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  header p { margin: 0; color: var(--text-secondary); }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 12px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(440px, 100%), 1fr)); gap: 12px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; min-width: 0; }
+  .card.wide { grid-column: 1 / -1; }
+  .card h2 { font-size: 14px; font-weight: 600; margin: 0; }
+  .card .description { margin: 2px 0 12px; color: var(--text-secondary); font-size: 12px; }
+  .tile .value { font-size: 30px; font-weight: 600; line-height: 1.2; overflow-wrap: anywhere; }
+  .chart { position: relative; height: 280px; }
+  .empty { color: var(--text-muted); padding: 24px 0; }
+  details { margin-top: 8px; }
+  summary { cursor: pointer; color: var(--text-secondary); font-size: 12px; }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { padding: 6px 8px; border-bottom: 1px solid var(--grid); text-align: left; white-space: nowrap; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .skipped { margin-top: 16px; color: var(--text-secondary); font-size: 12px; }
+  .skipped li { margin: 2px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>{{ spec.title }}</h1>
+  <p>{{ spec.question }}</p>
+</header>
+
+{% set tiles = spec.panels | selectattr("chart", "equalto", "kpi") | list %}
+{% if tiles %}
+<section class="tiles">
+  {% for panel in tiles %}
+  <div class="card tile">
+    <h2>{{ panel.title }}</h2>
+    <p class="description">{{ panel.description }}</p>
+    <div class="value">{{ panel.value }}</div>
+  </div>
+  {% endfor %}
+</section>
+{% endif %}
+
+<section class="grid">
+  {% for panel in spec.panels if panel.chart != "kpi" %}
+  <div class="card{% if panel.chart == 'table' %} wide{% endif %}">
+    <h2>{{ panel.title }}</h2>
+    <p class="description">{{ panel.description }}</p>
+    {% if panel.chart in ("bar", "line", "share") %}
+    <div class="chart"><canvas data-panel="{{ panel.id }}" role="img" aria-label="{{ panel.title }}"></canvas></div>
+    <details>
+      <summary>Show data</summary>
+      <div class="table-wrap">
+        <table>
+          <tr><th></th>{% for dataset in panel.datasets %}<th class="num">{{ dataset.label }}</th>{% endfor %}</tr>
+          {% for label in panel.labels %}
+          {% set row = loop.index0 %}
+          <tr><td>{{ label }}</td>{% for dataset in panel.datasets %}<td class="num">{{ dataset.data[row] }}</td>{% endfor %}</tr>
+          {% endfor %}
+        </table>
+      </div>
+    </details>
+    {% elif panel.chart == "table" %}
+    <div class="table-wrap">
+      <table>
+        <tr>{% for column in panel.columns %}<th{% if panel.numeric[loop.index0] %} class="num"{% endif %}>{{ column }}</th>{% endfor %}</tr>
+        {% for row in panel.rows %}
+        <tr>{% for value in row %}<td{% if panel.numeric[loop.index0] %} class="num"{% endif %}>{{ value }}</td>{% endfor %}</tr>
+        {% endfor %}
+      </table>
+    </div>
+    {% else %}
+    <p class="empty">No data for this metric.</p>
+    {% endif %}
+  </div>
+  {% endfor %}
+</section>
+
+{% if spec.skipped %}
+<section class="skipped">
+  <p>Skipped because their query failed:</p>
+  <ul>{% for item in spec.skipped %}<li><strong>{{ item.title }}</strong>: {{ item.reason }}</li>{% endfor %}</ul>
+</section>
+{% endif %}
+
+<script id="spec" type="application/json">{{ spec | tojson }}</script>
+<script>{{ chart_js | safe }}</script>
+<script>
+(function () {
+  const spec = JSON.parse(document.getElementById("spec").textContent);
+  const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  const series = [css("--series-1"), css("--series-2"), css("--series-3")];
+  const number = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
+
+  Chart.defaults.font.family = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+  Chart.defaults.color = css("--text-muted");
+  Chart.defaults.animation = false; // the data is final when the page loads
+
+  function datasets(panel) {
+    return panel.datasets.map((dataset, index) => {
+      const color = series[index];
+      if (panel.chart === "line") {
+        return {
+          label: dataset.label, data: dataset.data, borderColor: color, backgroundColor: color,
+          borderWidth: 2, borderCapStyle: "round", borderJoinStyle: "round", cubicInterpolationMode: "monotone",
+          pointRadius: panel.labels.length > 24 ? 0 : 4, pointHoverRadius: 6,
+          pointBorderColor: css("--surface"), pointBorderWidth: 2,
+        };
+      }
+      return {
+        label: dataset.label, data: dataset.data, backgroundColor: color,
+        maxBarThickness: 24, borderRadius: 4, borderSkipped: "start",
+        borderColor: css("--surface"), borderWidth: 1,
+      };
+    });
+  }
+
+  function config(panel) {
+    const horizontal = panel.chart === "share";
+    const valueAxis = {
+      beginAtZero: true,
+      grid: { color: css("--grid"), lineWidth: 1 },
+      border: { display: false },
+      ticks: { callback: (value) => number.format(value) + (horizontal ? "%" : "") },
+    };
+    const categoryAxis = { grid: { display: false }, border: { color: css("--axis") } };
+    return {
+      type: panel.chart === "line" ? "line" : "bar",
+      data: { labels: panel.labels, datasets: datasets(panel) },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        indexAxis: horizontal ? "y" : "x",
+        interaction: { mode: "index", intersect: false },
+        scales: horizontal ? { x: valueAxis, y: categoryAxis } : { x: categoryAxis, y: valueAxis },
+        plugins: {
+          legend: {
+            display: panel.datasets.length > 1,
+            position: "top",
+            align: "start",
+            labels: { color: css("--text-secondary"), boxWidth: 10, boxHeight: 10, useBorderRadius: true, borderRadius: 2 },
+          },
+          tooltip: {
+            callbacks: {
+              label: (item) => `${item.dataset.label}: ${number.format(item.parsed[horizontal ? "x" : "y"])}${horizontal ? "%" : ""}`,
+            },
+          },
+        },
+      },
+    };
+  }
+
+  for (const canvas of document.querySelectorAll("canvas[data-panel]")) {
+    const panel = spec.panels.find((item) => item.id === Number(canvas.dataset.panel));
+    new Chart(canvas, config(panel));
+  }
+})();
+</script>
+</body>
+</html>

@@ -1,4 +1,4 @@
-"""Shared fakes: tools and LLMs that mimic the small slice of the LangChain API the agents use."""
+"""Shared fakes (LLM, MCP) and fixtures with the sample sales dataset."""
 
 import shutil
 from pathlib import Path
@@ -7,20 +7,6 @@ from types import SimpleNamespace
 import pytest
 
 from csv_intelligence.data.ingest import ingest_csv
-
-
-class FakeTool:
-    def __init__(self, name: str, result=None, error: Exception | None = None):
-        self.name = name
-        self.result = result
-        self.error = error
-        self.calls: list[dict] = []
-
-    async def ainvoke(self, arguments: dict):
-        self.calls.append(arguments)
-        if self.error:
-            raise self.error
-        return self.result
 
 
 class FakeLLM:
@@ -34,10 +20,30 @@ class FakeLLM:
         self.received.append(messages)
         return SimpleNamespace(content=self.replies.pop(0))
 
+    async def astream(self, messages):
+        """Streams the next reply word by word, like a chat model streaming tokens."""
+        self.received.append(messages)
+        for word in self.replies.pop(0).split(" "):
+            yield SimpleNamespace(content=word + " ")
 
-@pytest.fixture
-def fake_tool():
-    return FakeTool
+
+class InProcessMcp:
+    """Stands in for McpClient by calling the real server tools directly (no HTTP)."""
+
+    def __init__(self):
+        self.calls: list[tuple[str, dict]] = []
+
+    async def call(self, tool: str, arguments: dict | None = None) -> dict:
+        from csv_intelligence.agents.mcp_client import ToolCallError
+        from csv_intelligence.server import analyst
+
+        arguments = arguments or {}
+        self.calls.append((tool, arguments))
+        try:
+            result = getattr(analyst, tool)(**arguments)
+            return await result if hasattr(result, "__await__") else result
+        except Exception as error:
+            raise ToolCallError(str(error)) from error
 
 
 @pytest.fixture
@@ -62,3 +68,9 @@ def sales_dataset(upload_dir, tmp_path) -> str:
     copy = tmp_path / "sample_sales.csv"
     shutil.copy(SAMPLE_CSV, copy)
     return ingest_csv(copy, upload_dir, "sample_sales.csv")["dataset"]
+
+
+@pytest.fixture
+def mcp(sales_dataset) -> InProcessMcp:
+    """An MCP stand-in serving the sample sales dataset."""
+    return InProcessMcp()
