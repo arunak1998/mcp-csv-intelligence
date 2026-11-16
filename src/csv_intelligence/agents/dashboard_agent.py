@@ -5,18 +5,19 @@ The query results never go back to the LLM: the spec is built locally and render
 
 import asyncio
 import logging
+import time
 from typing import Any
 
 from langchain_core.language_models import BaseChatModel
 
 from csv_intelligence.agents.audit import LlmAudit
-from csv_intelligence.agents.chat import StepTimer
 from csv_intelligence.agents.dataset import NO_DATASET_MESSAGE, active_dataset
 from csv_intelligence.agents.mcp_client import McpClient, ToolCallError
 from csv_intelligence.agents.parsing import message_text, parse_json_object
 from csv_intelligence.agents.privacy import schema_for_llm
 from csv_intelligence.agents.prompts import PLAN_DASHBOARD_PROMPT
 from csv_intelligence.dashboards.spec import CHART_TYPES, build_spec
+from csv_intelligence.timing import Timer, elapsed_ms
 
 logger = logging.getLogger(__name__)
 
@@ -48,12 +49,17 @@ async def plan_metrics(
 
 
 async def run_metric(mcp: McpClient, dataset: str, metric: dict[str, Any]) -> dict[str, Any]:
-    """Run one metric's SQL; a failure is recorded on the metric instead of failing the dashboard."""
+    """Run one metric's SQL; a failure is recorded on the metric instead of failing the dashboard.
+
+    "ms" is the metric's own round trip, so a slow query stands out even though all run at once.
+    """
+    start = time.perf_counter()
     try:
-        return {**metric, "result": await mcp.call("run_sql", {"dataset": dataset, "query": metric["sql"]})}
+        result = await mcp.call("run_sql", {"dataset": dataset, "query": metric["sql"]})
+        return {**metric, "result": result, "ms": elapsed_ms(start)}
     except ToolCallError as error:
         logger.warning("Metric %r failed: %s", metric.get("title"), error)
-        return {**metric, "error": str(error)}
+        return {**metric, "error": str(error), "ms": elapsed_ms(start)}
 
 
 async def run_metrics(mcp: McpClient, dataset: str, metrics: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -61,10 +67,24 @@ async def run_metrics(mcp: McpClient, dataset: str, metrics: list[dict[str, Any]
     return list(await asyncio.gather(*(run_metric(mcp, dataset, metric) for metric in metrics)))
 
 
-async def build_dashboard(question: str, mcp: McpClient, llm: BaseChatModel) -> dict[str, Any]:
-    """Return {"spec", "audit", "timings_ms"} for the active dataset."""
-    audit, timer = LlmAudit(), StepTimer()
-    dataset = await active_dataset(mcp)
+def metric_timings(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {"title": result.get("title") or "Metric", "ms": result["ms"], "ok": "result" in result}
+        for result in results
+    ]
+
+
+async def build_dashboard(
+    question: str, mcp: McpClient, llm: BaseChatModel, timer: Timer | None = None
+) -> dict[str, Any]:
+    """Return {"spec", "audit", "timings_ms", "metric_timings"} for the active dataset.
+
+    timings_ms: load_dataset, plan (LLM), queries (all metrics, in parallel), build_spec, total.
+    Pass a timer to add later steps (such as rendering) to the same report.
+    """
+    audit, timer = LlmAudit(), timer or Timer()
+    with timer.step("load_dataset"):
+        dataset = await active_dataset(mcp)
     if dataset is None:
         raise ValueError(NO_DATASET_MESSAGE)
     name, profile = dataset
@@ -73,7 +93,13 @@ async def build_dashboard(question: str, mcp: McpClient, llm: BaseChatModel) -> 
         title, metrics = await plan_metrics(llm, audit, question, schema_for_llm(profile))
     with timer.step("queries"):
         results = await run_metrics(mcp, name, metrics)
-    spec = build_spec(title, question, results)
+    with timer.step("build_spec"):
+        spec = build_spec(title, question, results)
     if not spec["panels"]:
         raise RuntimeError("None of the planned queries could be run")
-    return {"spec": spec, "audit": audit.calls, "timings_ms": timer.ms}
+    return {
+        "spec": spec,
+        "audit": audit.calls,
+        "timings_ms": timer.report(),
+        "metric_timings": metric_timings(results),
+    }
