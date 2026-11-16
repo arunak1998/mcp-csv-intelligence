@@ -199,7 +199,8 @@ app = create_app()
 def main() -> None:
     import uvicorn
 
-    logging.basicConfig(level=logging.INFO, format="[web] %(message)s")
+    logging.basicConfig(level=logging.WARNING, format="[web] %(message)s")
+    logging.getLogger("csv_intelligence").setLevel(logging.INFO)  # our timings; not every HTTP request
     host = os.getenv("WEB_HOST", "127.0.0.1")
     port = int(os.getenv("WEB_PORT", "8000"))
     print(f"[web] open http://{'localhost' if host == '127.0.0.1' else host}:{port}", flush=True)
