@@ -1,85 +1,86 @@
-"""MCP server exposing CSV discovery, schema inspection and Polars SQL execution."""
+"""MCP server: lists datasets, returns their cached profile and runs Polars SQL on the Parquet file."""
 
-import os
 import sys
-from glob import glob
+from datetime import date, datetime, time, timedelta
+from decimal import Decimal
+from pathlib import Path
 from typing import Annotated, Any
 
 import polars as pl
-from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
+from csv_intelligence.data import datasets
+from csv_intelligence.data.profile import load_profile
 from csv_intelligence.server.sql_reference import describe_sql_functions
+from csv_intelligence.settings import load_settings
 
-load_dotenv()
-
-FILE_LOCATION = os.getenv("FILE_LOCATION", "data/uploads/*.csv")
-MCP_HOST = os.getenv("MCP_HOST", "127.0.0.1")
-MCP_PORT = int(os.getenv("MCP_PORT", "8050"))
-
-mcp = FastMCP("analyst", host=MCP_HOST, port=MCP_PORT)
+_startup = load_settings()
+mcp = FastMCP("analyst", host=_startup.mcp_host, port=_startup.mcp_port)
 
 QUERY_DESCRIPTION = f"""
-The polars sql query to be executed.
-polars sql query must use the table name as `self` to refer to the source data.
+One Polars SQL SELECT query. Use `self` as the table name.
 Supported functions are:
 {describe_sql_functions()}
 """
 
 
-def read_file(file_location: str, file_type: str = "csv") -> pl.DataFrame:
-    if file_type == "csv":
-        return pl.read_csv(file_location)
-    if file_type == "parquet":
-        return pl.read_parquet(file_location)
-    raise ValueError(f"Unsupported file type: {file_type}")
+def upload_dir() -> Path:
+    return load_settings().upload_dir
 
 
-def read_file_list(file_locations: list[str], file_type: str = "csv") -> pl.DataFrame:
-    """Read several same-schema files into one DataFrame (CSV is scanned lazily)."""
-    if file_type == "csv":
-        return pl.concat([pl.scan_csv(f) for f in file_locations]).collect()
-    if file_type == "parquet":
-        return pl.read_parquet(file_locations)
-    raise ValueError(f"Unsupported file type: {file_type}")
+def to_json_value(value: Any) -> Any:
+    """Convert values Polars returns into JSON-friendly ones."""
+    if isinstance(value, date | datetime | time):
+        return value.isoformat()
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, timedelta):
+        return str(value)
+    return value
 
 
-@mcp.tool(name="get_files_list", description="Get list of source CSV files")
-def get_files_list() -> list[str]:
-    return glob(FILE_LOCATION)
+def query_parquet(path: Path, query: str, max_rows: int) -> dict[str, Any]:
+    """Run query lazily on the Parquet file and return at most max_rows rows."""
+    frame = pl.scan_parquet(path).sql(query).limit(max_rows + 1).collect()
+    truncated = frame.height > max_rows
+    frame = frame.head(max_rows)
+    return {
+        "columns": frame.columns,
+        "rows": [[to_json_value(value) for value in row] for row in frame.iter_rows()],
+        "row_count": frame.height,
+        "truncated": truncated,
+    }
 
 
 @mcp.tool()
-def get_schema(file_location: str, file_type: str = "csv") -> list[dict[str, Any]]:
-    """Return the column names and data types of a file."""
-    df = read_file(file_location, file_type)
-    return [{"name": col, "dtype": str(dtype)} for col, dtype in df.schema.items()]
+def list_datasets() -> dict[str, list[str]]:
+    """List the datasets that can be queried."""
+    return {"datasets": datasets.list_datasets(upload_dir())}
 
 
 @mcp.tool()
-def execute_polars_sql(
-    file_locations: list[str],
+def get_schema(dataset: str) -> dict[str, Any]:
+    """Column names, types and summary statistics of a dataset. No rows are returned."""
+    return load_profile(datasets.profile_path(upload_dir(), dataset))
+
+
+@mcp.tool()
+def run_sql(
+    dataset: str,
     query: Annotated[str, Field(description=QUERY_DESCRIPTION)],
-    file_type: Annotated[
-        str,
-        Field(description="The type of the file to be read. Supported types are csv and parquet"),
-    ] = "csv",
-) -> list[dict[str, Any]]:
-    """
-    Reads the data from the given file locations. Note that file_locations
-    can be a list of multiple files. However, all files must have the same schema
-    and the same columns. Executes the given polars sql query and returns the result.
-    Note that the polars sql query must use the table name as `self` to refer to the source data.
-    """
-    df = read_file_list(file_locations, file_type)
-    return df.sql(query).to_dicts()
+) -> dict[str, Any]:
+    """Run one read-only Polars SQL query on a dataset and return columns and rows."""
+    settings = load_settings()
+    return query_parquet(datasets.parquet_path(settings.upload_dir, dataset), query, settings.max_result_rows)
 
 
 def main() -> None:
     # stdout carries the MCP protocol, so diagnostics go to stderr
     print(
-        f"[server] listening on {MCP_HOST}:{MCP_PORT} (files: {FILE_LOCATION})", file=sys.stderr, flush=True
+        f"[server] listening on {_startup.mcp_host}:{_startup.mcp_port} (datasets: {_startup.upload_dir})",
+        file=sys.stderr,
+        flush=True,
     )
     mcp.run(transport="streamable-http")
 

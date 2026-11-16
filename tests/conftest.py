@@ -1,8 +1,12 @@
 """Shared fakes: tools and LLMs that mimic the small slice of the LangChain API the agents use."""
 
+import shutil
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+
+from csv_intelligence.data.ingest import ingest_csv
 
 
 class FakeTool:
@@ -39,3 +43,22 @@ def fake_tool():
 @pytest.fixture
 def fake_llm():
     return FakeLLM
+
+
+SAMPLE_CSV = Path("data/sample_sales.csv")
+
+
+@pytest.fixture
+def upload_dir(tmp_path, monkeypatch) -> Path:
+    """An empty upload folder that both the server and the ingest code use."""
+    folder = tmp_path / "uploads"
+    monkeypatch.setenv("UPLOAD_DIR", str(folder))
+    return folder
+
+
+@pytest.fixture
+def sales_dataset(upload_dir, tmp_path) -> str:
+    """The sample sales CSV converted to a dataset; returns its name."""
+    copy = tmp_path / "sample_sales.csv"
+    shutil.copy(SAMPLE_CSV, copy)
+    return ingest_csv(copy, upload_dir, "sample_sales.csv")["dataset"]
