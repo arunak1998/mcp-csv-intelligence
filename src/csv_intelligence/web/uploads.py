@@ -13,6 +13,7 @@ from typing import Any
 from csv_intelligence.data.ingest import ingest_csv, read_csv
 from csv_intelligence.data.pii import scan_pii
 from csv_intelligence.formatting import format_value
+from csv_intelligence.timing import Timer
 
 PREVIEW_ROWS = 5
 UPLOAD_ID = re.compile(r"^[0-9a-f]{16}$")
@@ -31,6 +32,7 @@ def stage_upload(upload_dir: Path, filename: str, content: bytes) -> dict[str, A
 
     Only one upload is staged at a time. Raises ValueError when the file can't be read as a CSV.
     """
+    timer = Timer()
     folder = staging_dir(upload_dir)
     shutil.rmtree(folder, ignore_errors=True)
     folder.mkdir(parents=True)
@@ -39,28 +41,37 @@ def stage_upload(upload_dir: Path, filename: str, content: bytes) -> dict[str, A
     path.write_bytes(content)
     (folder / f"{upload_id}.name").write_text(Path(filename).name, encoding="utf-8")
     try:
-        df = read_csv(path)
+        with timer.step("read_csv"):
+            df = read_csv(path)
     except Exception as error:
         shutil.rmtree(folder, ignore_errors=True)
         raise ValueError(f"Could not read {Path(filename).name} as a CSV: {error}") from error
+    with timer.step("pii_scan"):
+        findings = scan_pii(df)
     return {
         "upload_id": upload_id,
         "filename": Path(filename).name,
         "row_count": df.height,
         "columns": [{"name": name, "dtype": str(dtype)} for name, dtype in df.schema.items()],
-        "pii": [asdict(finding) for finding in scan_pii(df)],
+        "pii": [asdict(finding) for finding in findings],
         "preview": [[format_value(value) for value in row] for row in df.head(PREVIEW_ROWS).iter_rows()],
+        "timings_ms": timer.report(),
     }
 
 
 def ingest_staged(upload_dir: Path, upload_id: str, choices: dict[str, dict[str, Any]]) -> dict[str, Any]:
-    """Convert the staged CSV into the active dataset with the chosen masks/renames; return its profile."""
+    """Convert the staged CSV into the active dataset with the chosen masks/renames.
+
+    Returns the profile plus timings_ms (read_csv, privacy, write_parquet, profile, total).
+    """
     folder = staging_dir(upload_dir)
     path = folder / f"{upload_id}.csv"
     if not UPLOAD_ID.fullmatch(upload_id) or not path.is_file():
         raise UnknownUploadError("This upload is no longer waiting for review. Please upload the file again.")
     filename = (folder / f"{upload_id}.name").read_text(encoding="utf-8")
+    timer = Timer()
     try:
-        return ingest_csv(path, upload_dir, filename, choices)
+        profile = ingest_csv(path, upload_dir, filename, choices, timer)
+        return {**profile, "timings_ms": timer.report()}
     finally:
         shutil.rmtree(folder, ignore_errors=True)

@@ -43,6 +43,7 @@ def test_upload_review_then_ingest_with_masking(upload_dir):
             ("email", "email"),
         }
         assert review["preview"][0] == ["Ann Lee", "ann@example.com", "10"]
+        assert list(review["timings_ms"]) == ["read_csv", "pii_scan", "total"]
 
         profile = client.post(
             "/api/ingest",
@@ -52,6 +53,7 @@ def test_upload_review_then_ingest_with_masking(upload_dir):
             },
         ).json()
         assert [c["name"] for c in profile["columns"]] == ["buyer", "email", "amount"]
+        assert list(profile["timings_ms"]) == ["read_csv", "privacy", "write_parquet", "profile", "total"]
         assert client.get("/api/status").json()["dataset"]["dataset"] == "people"
     assert not (upload_dir / ".staging").exists()
 
@@ -111,6 +113,8 @@ def test_dashboard_returns_rendered_html_and_audit(sales_dataset):
         body = client.post("/api/dashboard", json={"question": "overview"}).json()
     assert "<title>Overview</title>" in body["html"] and ">120<" in body["html"]
     assert body["audit"][0]["step"] == "plan_dashboard"
+    assert list(body["timings_ms"]) == ["load_dataset", "plan", "queries", "build_spec", "render", "total"]
+    assert body["metric_timings"][0]["title"] == "Orders" and body["metric_timings"][0]["ok"] is True
 
 
 def test_dashboard_without_a_dataset_is_400(upload_dir):
