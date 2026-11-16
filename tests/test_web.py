@@ -131,3 +131,12 @@ def test_remove_dataset(sales_dataset, upload_dir):
 )
 def test_strict_configuration_cannot_be_relaxed_from_the_browser(requested, configured, expected):
     assert effective_privacy_mode(requested, configured) == expected
+
+
+def test_page_and_assets_are_served_locally(upload_dir):
+    with client_for() as client:
+        page = client.get("/")
+        assert page.headers["content-type"].startswith("text/html")
+        for asset in ("/static/app.js", "/static/app.css"):
+            assert asset in page.text and client.get(asset).status_code == 200
+    assert "https://" not in page.text  # no CDN: the UI works offline
