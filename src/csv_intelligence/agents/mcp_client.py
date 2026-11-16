@@ -70,6 +70,14 @@ class McpClient:
     def connected(self) -> bool:
         return self._ready.is_set()
 
+    async def wait_until_connected(self, timeout: float) -> bool:
+        """True once a session is ready, or False after timeout (without raising)."""
+        try:
+            await asyncio.wait_for(self._ready.wait(), timeout=timeout)
+        except TimeoutError:
+            return False
+        return True
+
     async def start(self) -> None:
         self._task = asyncio.create_task(self._run())
 
