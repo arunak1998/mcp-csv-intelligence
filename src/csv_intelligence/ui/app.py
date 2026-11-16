@@ -6,10 +6,10 @@ import datetime
 import streamlit as st
 
 from csv_intelligence.agents.chat import answer_question, collect_answer
-from csv_intelligence.agents.connection import local_connection
-from csv_intelligence.agents.dashboard_agent import run_dashboard_agent
+from csv_intelligence.agents.dashboard_agent import build_dashboard
 from csv_intelligence.agents.llm import create_llm
 from csv_intelligence.agents.mcp_client import connected_client
+from csv_intelligence.dashboards.render import render_dashboard as render_dashboard_html
 from csv_intelligence.settings import load_settings
 from csv_intelligence.ui.health import mcp_server_is_up
 from csv_intelligence.ui.uploads import clear_uploads, save_upload
@@ -23,6 +23,7 @@ def init_state() -> None:
     st.session_state.setdefault("messages", [])
     st.session_state.setdefault("logs", [])
     st.session_state.setdefault("dashboard_html", "")
+    st.session_state.setdefault("dashboard_audit", [])
     st.session_state.setdefault("file", None)  # {"name", "location", "size_kb"} once uploaded
 
 
@@ -75,6 +76,11 @@ async def ask(question: str) -> dict:
             question, mcp, create_llm(), settings.privacy_mode, settings.insight_max_rows
         )
         return await collect_answer(events)
+
+
+async def make_dashboard(question: str) -> dict:
+    async with connected_client(load_settings().mcp_url) as mcp:
+        return await build_dashboard(question, mcp, create_llm())
 
 
 def render_answer(answer: dict) -> None:
@@ -133,16 +139,18 @@ def render_dashboard() -> None:
         else:
             with st.spinner("Building your dashboard..."):
                 try:
-                    st.session_state.dashboard_html = asyncio.run(
-                        run_dashboard_agent(question, local_connection())
-                    )
-                    log("Dashboard generated")
+                    dashboard = asyncio.run(make_dashboard(question))
+                    st.session_state.dashboard_html = render_dashboard_html(dashboard["spec"])
+                    st.session_state.dashboard_audit = dashboard["audit"]
+                    log(f"Dashboard generated in {dashboard['timings_ms']}")
                 except Exception as error:
                     st.error(f"❌ {error}")
                     log(f"Dashboard failed: {error}")
 
     if st.session_state.dashboard_html:
-        st.components.v1.html(st.session_state.dashboard_html, height=700, scrolling=True)
+        st.components.v1.html(st.session_state.dashboard_html, height=900, scrolling=True)
+        with st.expander("What the AI saw"):
+            st.json(st.session_state.dashboard_audit)
 
 
 def render_logs() -> None:

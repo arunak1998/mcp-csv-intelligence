@@ -13,6 +13,7 @@ dependencies = [
     "langchain-core>=0.3.74",
     "langchain-openai>=0.3.30",
     "langchain-mcp-adapters>=0.1.9",
+    "jinja2>=3.1",
     "langgraph>=0.6.5,<2",
     "mcp[cli]>=1.13.0",
     "polars>=1.32.3",
@@ -34,6 +35,9 @@ csv-mcp-server = "csv_intelligence.server.analyst:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"csv_intelligence.dashboards" = ["templates/*.html", "static/*.js"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

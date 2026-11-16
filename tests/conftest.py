@@ -9,20 +9,6 @@ import pytest
 from csv_intelligence.data.ingest import ingest_csv
 
 
-class FakeTool:
-    def __init__(self, name: str, result=None, error: Exception | None = None):
-        self.name = name
-        self.result = result
-        self.error = error
-        self.calls: list[dict] = []
-
-    async def ainvoke(self, arguments: dict):
-        self.calls.append(arguments)
-        if self.error:
-            raise self.error
-        return self.result
-
-
 class FakeLLM:
     """Returns canned replies in order and records the messages it was sent."""
 
@@ -58,11 +44,6 @@ class InProcessMcp:
             return await result if hasattr(result, "__await__") else result
         except Exception as error:
             raise ToolCallError(str(error)) from error
-
-
-@pytest.fixture
-def fake_tool():
-    return FakeTool
 
 
 @pytest.fixture

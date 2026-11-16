@@ -1,77 +1,79 @@
-"""Dashboard pipeline: plan metrics from the schema, run their SQL, render an HTML dashboard."""
+"""Dashboard: plan metrics from the schema (one LLM call), run their SQL in parallel, build a chart spec.
 
-import json
+The query results never go back to the LLM: the spec is built locally and rendered by a template.
+"""
+
+import asyncio
 import logging
+from typing import Any
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_core.tools import BaseTool
 
-from csv_intelligence.agents.connection import McpConnection, find_tool, open_mcp_tools
-from csv_intelligence.agents.data_context import load_data_context
-from csv_intelligence.agents.llm import create_llm
-from csv_intelligence.agents.parsing import DataContext, parse_json_object, parse_rows, strip_code_fence
-from csv_intelligence.agents.prompts import RENDER_DASHBOARD_PROMPT, SCHEMA_ANALYSIS_PROMPT
+from csv_intelligence.agents.audit import LlmAudit
+from csv_intelligence.agents.chat import StepTimer
+from csv_intelligence.agents.dataset import NO_DATASET_MESSAGE, active_dataset
+from csv_intelligence.agents.mcp_client import McpClient, ToolCallError
+from csv_intelligence.agents.parsing import message_text, parse_json_object
+from csv_intelligence.agents.privacy import schema_for_llm
+from csv_intelligence.agents.prompts import PLAN_DASHBOARD_PROMPT
+from csv_intelligence.dashboards.spec import CHART_TYPES, build_spec
 
 logger = logging.getLogger(__name__)
 
+MAX_METRICS = 6
 
-async def plan_metrics(llm: BaseChatModel, data: DataContext, question: str) -> list[dict]:
-    """Ask the LLM for the key metrics (each with a Polars SQL query) that answer the question."""
-    payload = {"schema": data.schema_as_list(), "question": question}
-    response = await llm.ainvoke(
-        [SystemMessage(content=SCHEMA_ANALYSIS_PROMPT), HumanMessage(content=json.dumps(payload))]
+
+def valid_metrics(plan: dict[str, Any]) -> list[dict[str, Any]]:
+    """Metrics that have SQL, with an unknown chart type falling back to a table."""
+    metrics = []
+    for metric in plan.get("metrics") or []:
+        if isinstance(metric, dict) and isinstance(metric.get("sql"), str) and metric["sql"].strip():
+            chart = metric.get("chart") if metric.get("chart") in CHART_TYPES else "table"
+            metrics.append({**metric, "chart": chart})
+    return metrics[:MAX_METRICS]
+
+
+async def plan_metrics(
+    llm: BaseChatModel, audit: LlmAudit, question: str, schema: dict[str, Any]
+) -> tuple[str, list[dict[str, Any]]]:
+    """Ask the LLM for a title and metrics (each with SQL and a chart type) from the schema only."""
+    messages = audit.messages(
+        "plan_dashboard", PLAN_DASHBOARD_PROMPT, {"question": question, "schema": schema}
     )
-    plan = parse_json_object(response.content)
-    if not plan.get("key_metrics"):
-        raise ValueError("The model returned a plan without key_metrics")
-    return plan["key_metrics"]
+    plan = parse_json_object(message_text((await llm.ainvoke(messages)).content))
+    metrics = valid_metrics(plan)
+    if not metrics:
+        raise ValueError("The model returned a plan without metrics")
+    return plan.get("title") or "Dashboard", metrics
 
 
-async def run_metric_queries(tools: list[BaseTool], metrics: list[dict], file_path: str) -> list[dict]:
-    """Execute each metric's SQL; a metric whose query fails is skipped rather than failing the dashboard."""
-    execute_sql = find_tool(tools, "execute_polars_sql")
-    results = []
-    for metric in metrics:
-        try:
-            rows = parse_rows(
-                await execute_sql.ainvoke(
-                    {"file_locations": [file_path], "query": metric["sql"], "file_type": "csv"}
-                )
-            )
-        except Exception:
-            logger.exception("Skipping metric %r: its SQL failed", metric.get("metric"))
-            continue
-        results.append(
-            {
-                "metric": metric["metric"],
-                "description": metric["description"],
-                "visualization_type": metric["visualization_type"],
-                "data": rows,
-            }
-        )
-    if not results:
-        raise RuntimeError("None of the generated SQL queries could be executed")
-    return results
+async def run_metric(mcp: McpClient, dataset: str, metric: dict[str, Any]) -> dict[str, Any]:
+    """Run one metric's SQL; a failure is recorded on the metric instead of failing the dashboard."""
+    try:
+        return {**metric, "result": await mcp.call("run_sql", {"dataset": dataset, "query": metric["sql"]})}
+    except ToolCallError as error:
+        logger.warning("Metric %r failed: %s", metric.get("title"), error)
+        return {**metric, "error": str(error)}
 
 
-async def render_dashboard(llm: BaseChatModel, metrics_data: list[dict]) -> str:
-    response = await llm.ainvoke(
-        [
-            SystemMessage(content=RENDER_DASHBOARD_PROMPT),
-            HumanMessage(content=json.dumps({"metrics": metrics_data})),
-        ]
-    )
-    return strip_code_fence(response.content)
+async def run_metrics(mcp: McpClient, dataset: str, metrics: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """All metric queries at once over the shared MCP session."""
+    return list(await asyncio.gather(*(run_metric(mcp, dataset, metric) for metric in metrics)))
 
 
-async def run_dashboard_agent(question: str, connection: McpConnection) -> str:
-    """Return a self-contained HTML dashboard for the CSV the MCP server exposes."""
-    async with open_mcp_tools(connection) as tools:
-        data = await load_data_context(tools)
-        if not data.schema:
-            raise RuntimeError("No file is present, so there is nothing to build a dashboard from")
+async def build_dashboard(question: str, mcp: McpClient, llm: BaseChatModel) -> dict[str, Any]:
+    """Return {"spec", "audit", "timings_ms"} for the active dataset."""
+    audit, timer = LlmAudit(), StepTimer()
+    dataset = await active_dataset(mcp)
+    if dataset is None:
+        raise ValueError(NO_DATASET_MESSAGE)
+    name, profile = dataset
 
-        metrics = await plan_metrics(create_llm(), data, question)
-        results = await run_metric_queries(tools, metrics, data.file_path)
-        return await render_dashboard(create_llm(), results)
+    with timer.step("plan"):
+        title, metrics = await plan_metrics(llm, audit, question, schema_for_llm(profile))
+    with timer.step("queries"):
+        results = await run_metrics(mcp, name, metrics)
+    spec = build_spec(title, question, results)
+    if not spec["panels"]:
+        raise RuntimeError("None of the planned queries could be run")
+    return {"spec": spec, "audit": audit.calls, "timings_ms": timer.ms}
