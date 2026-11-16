@@ -8,15 +8,16 @@ agents talk to that server to answer your questions.
 - **Chat agent**: inspects the schema, writes one Polars SQL query, and answers with a summary, key insights and a table.
 - **Dashboard agent**: plans metrics from the schema, runs each metric's SQL, and renders a single-file HTML dashboard
   (Tailwind + Chart.js).
-- **MCP server**: exposes `get_files_list`, `get_schema` and `execute_polars_sql` over HTTP.
+- **MCP server**: exposes `list_datasets`, `get_schema` and `run_sql` over HTTP. Each uploaded CSV is converted once
+  to Parquet, and its schema and summary statistics are cached next to it, so queries never re-parse the CSV.
 
 ```mermaid
 flowchart LR
     UI[Streamlit UI] --> A[Chat agent / Dashboard agent]
     A -->|LLM calls| LLM[OpenAI-compatible LLM]
     A -->|MCP over HTTP| S[MCP server<br/>Polars SQL]
-    S --> CSV[(CSV file)]
-    UI -->|saves upload| CSV
+    S --> PQ[(Parquet + cached profile)]
+    UI -->|converts upload| PQ
 ```
 
 The agents never read the file directly. They find it and query it only through the MCP tools.
@@ -124,6 +125,10 @@ A dashboard takes about 30 seconds, and a chat answer about 10 seconds, with the
 
 ```
 src/csv_intelligence/
+├── data/
+│   ├── ingest.py           # CSV -> Parquet conversion (typed columns, clean headers)
+│   ├── profile.py          # cached schema + summary statistics
+│   └── datasets.py         # dataset names and file locations
 ├── server/
 │   ├── analyst.py          # FastMCP server: the three tools
 │   └── sql_reference.py    # Polars SQL function list shown to the LLM
