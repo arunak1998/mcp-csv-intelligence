@@ -2,25 +2,30 @@
 
 Chat with a CSV file in plain English and turn it into an interactive dashboard.
 
-The data work runs behind an [MCP](https://modelcontextprotocol.io) server (Polars SQL). Two LangChain / LangGraph
-agents talk to that server to answer your questions.
+The data work runs behind an [MCP](https://modelcontextprotocol.io) server (Polars SQL). Two small pipelines talk to
+that server over one persistent MCP session.
 
-- **Chat agent**: inspects the schema, writes one Polars SQL query, and answers with a summary, key insights and a table.
-- **Dashboard agent**: plans metrics from the schema, runs each metric's SQL, and renders a single-file HTML dashboard
-  (Tailwind + Chart.js).
+- **Chat**: two LLM calls, no agent loop. Call 1 turns the question and the schema into one Polars SQL query. The
+  server runs it, and the table is shown first. Call 2 writes insights from the result, but only when the result is a
+  small aggregate and the privacy mode allows it. Otherwise the summary is written locally. If the SQL fails, one
+  extra call fixes it.
+- **Dashboard**: one LLM call plans 4–6 metrics (SQL + chart type) from the schema. All metric queries run in
+  parallel, and a Jinja2 template renders the result as a self-contained page (Chart.js inlined, no CDN). Query
+  results never go back to the LLM.
 - **MCP server**: exposes `list_datasets`, `get_schema` and `run_sql` over HTTP. Each uploaded CSV is converted once
   to Parquet, and its schema and summary statistics are cached next to it, so queries never re-parse the CSV.
 
 ```mermaid
 flowchart LR
-    UI[Streamlit UI] --> A[Chat agent / Dashboard agent]
-    A -->|LLM calls| LLM[OpenAI-compatible LLM]
-    A -->|MCP over HTTP| S[MCP server<br/>Polars SQL]
+    UI[Streamlit UI] --> A[Chat / Dashboard pipelines]
+    A -->|schema + question,<br/>small aggregates only| LLM[OpenAI-compatible LLM]
+    A -->|one persistent MCP session| S[MCP server<br/>guard + Polars SQL]
     S --> PQ[(Parquet + cached profile)]
     UI -->|converts upload| PQ
 ```
 
-The agents never read the file directly. They find it and query it only through the MCP tools.
+The pipelines never read the file directly. They find it and query it only through the MCP tools, and every
+answer includes **What the AI saw**: the exact messages sent to the LLM.
 
 ---
 
@@ -109,7 +114,7 @@ Run both commands from the repository root, so they share the `data/uploads` fol
    - *Top 3 products by units sold*
 3. **Dashboard** tab, ask: *Sales dashboard with revenue by region and monthly trend*
 
-A dashboard takes about 30 seconds, and a chat answer about 10 seconds, with the default settings.
+A chat answer makes at most two LLM calls (three if the first SQL needs fixing). A dashboard makes one.
 
 ## Troubleshooting
 
@@ -128,21 +133,34 @@ src/csv_intelligence/
 ├── data/
 │   ├── ingest.py           # CSV -> Parquet conversion (typed columns, clean headers)
 │   ├── profile.py          # cached schema + summary statistics
-│   └── datasets.py         # dataset names and file locations
+│   ├── datasets.py         # dataset names, file locations, upload-folder sandbox
+│   └── pii.py              # personal-data scan, masking and renaming
+├── sql/
+│   ├── guard.py            # sqlglot: one read-only SELECT on `self`
+│   ├── analysis.py         # string filters, aggregate-only check
+│   └── filters.py          # local filter-value matching
 ├── server/
 │   ├── analyst.py          # FastMCP server: the three tools
 │   └── sql_reference.py    # Polars SQL function list shown to the LLM
 ├── agents/
-│   ├── csv_agent.py        # ReAct chat agent
-│   ├── dashboard_agent.py  # plan -> query -> render pipeline
-│   ├── data_context.py     # find the CSV + schema via MCP
-│   ├── connection.py       # connect to the MCP server
-│   ├── parsing.py          # helpers for tool/LLM output (unit-tested)
+│   ├── chat.py             # question -> SQL -> table -> insights or local summary
+│   ├── dashboard_agent.py  # plan -> parallel queries -> chart spec
+│   ├── privacy.py          # what may reach the LLM; local summaries
+│   ├── audit.py            # "What the AI saw"
+│   ├── mcp_client.py       # one persistent MCP session
+│   ├── dataset.py          # find the dataset + profile via MCP
+│   ├── parsing.py          # helpers for LLM output
 │   ├── prompts.py          # system prompts
 │   └── llm.py              # the one place the LLM is created
+├── dashboards/
+│   ├── spec.py             # query results -> JSON chart spec
+│   ├── render.py           # spec -> HTML (Jinja2)
+│   ├── templates/          # dashboard.html
+│   └── static/             # Chart.js (vendored)
+├── formatting.py           # number formatting
 ├── ui/
 │   ├── app.py              # Streamlit app
-│   ├── uploads.py          # saving the uploaded CSV
+│   ├── uploads.py          # upload -> Parquet dataset
 │   └── health.py           # "is the MCP server up?" check
 └── settings.py
 tests/                      # pytest suite (no network or API key needed)
