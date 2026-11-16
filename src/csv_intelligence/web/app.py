@@ -23,6 +23,7 @@ from csv_intelligence.agents.mcp_client import McpClient, McpUnavailableError
 from csv_intelligence.dashboards.render import render_dashboard
 from csv_intelligence.data.datasets import remove_all_datasets
 from csv_intelligence.settings import load_settings
+from csv_intelligence.sql.guard import warm_up
 from csv_intelligence.timing import Timer
 from csv_intelligence.web.uploads import UnknownUploadError, ingest_staged, stage_upload
 
@@ -164,6 +165,7 @@ def create_app(mcp: Any = None, llm_factory: Callable[[], BaseChatModel] = creat
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        warm_up()
         if mcp is not None:
             app.state.mcp = mcp
             yield

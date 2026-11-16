@@ -17,7 +17,7 @@ from csv_intelligence.server.sql_reference import describe_sql_functions
 from csv_intelligence.settings import load_settings
 from csv_intelligence.sql.analysis import string_filters
 from csv_intelligence.sql.filters import closest_value, replace_string_literals
-from csv_intelligence.sql.guard import parse_select
+from csv_intelligence.sql.guard import parse_select, warm_up
 from csv_intelligence.timing import Timer
 
 _startup = load_settings()
@@ -164,6 +164,7 @@ def main() -> None:
         file=sys.stderr,
         flush=True,
     )
+    warm_up()
     mcp.run(transport="streamable-http")
 
 
