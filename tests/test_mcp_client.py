@@ -79,3 +79,28 @@ async def test_unreachable_server_gives_a_clear_error(monkeypatch):
             await client.call("list_datasets")
     finally:
         await client.stop()
+
+
+async def test_an_outage_is_reported_once_with_its_real_cause(monkeypatch, caplog):
+    import asyncio
+    import logging
+
+    from csv_intelligence.agents import mcp_client
+
+    monkeypatch.setattr(mcp_client, "RETRY_DELAY_SECONDS", 0.05)
+    client = McpClient(f"http://127.0.0.1:{free_port()}/mcp")
+    with caplog.at_level(logging.WARNING, logger=mcp_client.__name__):
+        await client.start()
+        await asyncio.sleep(0.6)
+        await client.stop()
+    warnings = [record.getMessage() for record in caplog.records]
+    assert len(warnings) == 1
+    assert "not reachable" in warnings[0] and "TaskGroup" not in warnings[0]
+
+
+def test_root_cause_unwraps_exception_groups():
+    from csv_intelligence.agents.mcp_client import root_cause
+
+    inner = ConnectionError("refused")
+    assert root_cause(ExceptionGroup("outer", [ExceptionGroup("inner", [inner])])) is inner
+    assert root_cause(inner) is inner
